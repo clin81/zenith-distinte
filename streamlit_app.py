@@ -52,12 +52,20 @@ def inizializza_database_completo():
     df.to_csv(DB_FILE, index=False)
     return df
 
-# --- 2. CARICAMENTO DATI ---
+# --- 2. GESTIONE CARICAMENTO DATI ---
+
+# Controlla se il file esiste sul server, altrimenti crealo subito
 if not os.path.exists(DB_FILE):
     inizializza_database_completo()
 
+# Ora che siamo sicuri che il file esiste, lo carichiamo in memoria
 if 'data' not in st.session_state:
-    st.session_state.data = pd.read_csv(DB_FILE, dtype=str).fillna("")
+    try:
+        st.session_state.data = pd.read_csv(DB_FILE, dtype=str).fillna("")
+    except Exception as e:
+        # Se per qualche motivo il caricamento fallisce, resettiamo il database
+        st.error(f"Errore nel caricamento del database: {e}")
+        st.session_state.data = inizializza_database_completo()
 
 # --- 3. GENERAZIONE EXCEL ---
 def genera_distinta_excel(players, staff):
