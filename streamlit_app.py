@@ -6,9 +6,11 @@ import xlsxwriter
 
 # 1. CONFIGURAZIONE E COSTANTI
 st.set_page_config(page_title="Zenith Prato - Gestione Distinte", layout="wide")
+
+# Usiamo un percorso più sicuro per il Cloud
 DB_FILE = "Database_Tesserati.csv"
 
-# Dati iniziali (U10 - 2016) da usare se il file non esiste
+# Dati iniziali completi (U10 - 2016)
 DATA_INIZIALE = [
     ["Giocatore", "7", "26", "05", "2016", "BARDAZZI CESARE", "4157212"],
     ["Giocatore", "21", "05", "11", "2016", "BODDI EDOARDO", "3757322"],
@@ -43,13 +45,22 @@ DATA_INIZIALE = [
     ["Staff", "Dir.", "", "", "", "MEMAJ VLADIMIR", "210410675"]
 ]
 
-# 2. FUNZIONI DI SERVIZIO
+# 2. FUNZIONI DI SERVIZIO (Versione Safe)
 def carica_o_crea_db():
-    if not os.path.exists(DB_FILE):
+    # Se il file non esiste o è vuoto (0 bytes), lo ricreiamo
+    if not os.path.exists(DB_FILE) or os.stat(DB_FILE).st_size == 0:
         df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
         df.to_csv(DB_FILE, index=False)
         return df
-    return pd.read_csv(DB_FILE, dtype=str).fillna("")
+    
+    try:
+        # Proviamo a leggere il file esistente
+        return pd.read_csv(DB_FILE, dtype=str).fillna("")
+    except Exception:
+        # Se Pandas fallisce per qualsiasi motivo, resettiamo il file
+        df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
+        df.to_csv(DB_FILE, index=False)
+        return df
 
 def genera_excel(players_df, staff_df, info_gara):
     output = BytesIO()
@@ -68,7 +79,7 @@ def genera_excel(players_df, staff_df, info_gara):
     for i, w in enumerate(col_widths):
         worksheet.set_column(i, i, w)
 
-    # 1. INTESTAZIONE
+    # 1. INTESTAZIONE (A1:E5 e F1:J5)
     worksheet.merge_range('A1:E5', "F.I.G.C. L.N.D.\nZENITH PRATO S.S.D.R.L.\nU10 PULCINI 2016", header_box)
     worksheet.merge_range('F1:J5', "STAGIONE 2025/2026\nDistinta Atleti", header_box)
 
@@ -103,59 +114,8 @@ def genera_excel(players_df, staff_df, info_gara):
     
     row_idx += 1
     for _, s in staff_df.iterrows():
-        worksheet.write(row_idx, 0, s['Maglia'], cell_fmt) # Uso colonna Maglia per il Ruolo
+        worksheet.write(row_idx, 0, s['Maglia'], cell_fmt) 
         worksheet.merge_range(row_idx, 1, row_idx, 6, s['Nominativo'], name_fmt)
         worksheet.write(row_idx, 7, s['FIGC'], cell_fmt)
         worksheet.write(row_idx, 8, "", cell_fmt)
-        worksheet.write(row_idx, 9, "", cell_fmt)
-        row_idx += 1
-
-    # 5. FIRME
-    row_idx += 3
-    worksheet.write(row_idx, 0, "L'ARBITRO: ___________________________", bold_txt)
-    worksheet.write(row_idx, 5, "IL DIRIGENTE: ___________________________", bold_txt)
-
-    workbook.close()
-    return output.getvalue()
-
-# 3. INTERFACCIA STREAMLIT
-st.title("⚽ Zenith Prato - Generatore Distinte")
-
-df = carica_o_crea_db()
-
-# Sidebar per info gara
-st.sidebar.header("Dati Gara")
-avv = st.sidebar.text_input("Avversario", "________________")
-data_g = st.sidebar.text_input("Data", "DD/MM/YYYY")
-ora_g = st.sidebar.text_input("Ora", "00:00")
-campo_g = st.sidebar.text_input("Campo", "Chiavacci")
-
-info_gara = {"avversario": avv, "data": data_g, "ora": ora_g, "campo": campo_g}
-
-# Selezione Giocatori e Staff
-giocatori_list = df[df['Tipo'] == 'Giocatore']
-staff_list = df[df['Tipo'] == 'Staff']
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Convocati")
-    scelti_p = st.multiselect("Seleziona i giocatori", giocatori_list['Nominativo'].tolist())
-    df_scelti_p = giocatori_list[giocatori_list['Nominativo'].isin(scelti_p)]
-
-with col2:
-    st.subheader("Staff in panchina")
-    scelti_s = st.multiselect("Seleziona lo staff", staff_list['Nominativo'].tolist())
-    df_scelti_s = staff_list[staff_list['Nominativo'].isin(scelti_s)]
-
-# Bottone di Download
-if not df_scelti_p.empty:
-    excel_data = genera_excel(df_scelti_p, df_scelti_s, info_gara)
-    st.download_button(
-        label="📥 Scarica Distinta Excel",
-        data=excel_data,
-        file_name=f"Distinta_Zenith_{avv}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-else:
-    st.warning("Seleziona almeno un giocatore per generare il file.")
+        worksheet.write(row_idx, 9, "", cell_fmt
