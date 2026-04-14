@@ -118,4 +118,4 @@ def genera_excel(players_df, staff_df, info_gara):
         worksheet.merge_range(row_idx, 1, row_idx, 6, s['Nominativo'], name_fmt)
         worksheet.write(row_idx, 7, s['FIGC'], cell_fmt)
         worksheet.write(row_idx, 8, "", cell_fmt)
-        worksheet.write(row_idx, 9, "", cell_fmt
+        worksheet.write(row_idx, 9, "", cell_fmt)
