@@ -4,13 +4,12 @@ import os
 from io import BytesIO
 import xlsxwriter
 
-# 1. CONFIGURAZIONE E COSTANTI
-st.set_page_config(page_title="Zenith Prato - Gestione Distinte", layout="wide")
+# 1. CONFIGURAZIONE (Deve essere la prima istruzione)
+st.set_page_config(page_title="Zenith Prato - Distinte", layout="wide")
 
-# Usiamo un percorso più sicuro per il Cloud
 DB_FILE = "Database_Tesserati.csv"
 
-# Dati iniziali completi (U10 - 2016)
+# Dati di emergenza se il file non esiste
 DATA_INIZIALE = [
     ["Giocatore", "7", "26", "05", "2016", "BARDAZZI CESARE", "4157212"],
     ["Giocatore", "21", "05", "11", "2016", "BODDI EDOARDO", "3757322"],
@@ -45,77 +44,97 @@ DATA_INIZIALE = [
     ["Staff", "Dir.", "", "", "", "MEMAJ VLADIMIR", "210410675"]
 ]
 
-# 2. FUNZIONI DI SERVIZIO (Versione Safe)
-def carica_o_crea_db():
-    # Se il file non esiste o è vuoto (0 bytes), lo ricreiamo
-    if not os.path.exists(DB_FILE) or os.stat(DB_FILE).st_size == 0:
+def carica_db():
+    if not os.path.exists(DB_FILE):
         df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
         df.to_csv(DB_FILE, index=False)
         return df
-    
-    try:
-        # Proviamo a leggere il file esistente
-        return pd.read_csv(DB_FILE, dtype=str).fillna("")
-    except Exception:
-        # Se Pandas fallisce per qualsiasi motivo, resettiamo il file
-        df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
-        df.to_csv(DB_FILE, index=False)
-        return df
+    return pd.read_csv(DB_FILE, dtype=str).fillna("")
 
-def genera_excel(players_df, staff_df, info_gara):
+def genera_excel(players_df, staff_df, info):
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet('Distinta')
+    ws = workbook.add_worksheet('Distinta')
 
     # FORMATI
-    header_box = workbook.add_format({'border': 2, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'font_size': 11})
-    table_header = workbook.add_format({'border': 1, 'bold': True, 'bg_color': '#D9D9D9', 'align': 'center', 'valign': 'vcenter', 'font_size': 9})
-    cell_fmt = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10})
-    name_fmt = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter', 'font_size': 10, 'indent': 1})
-    bold_txt = workbook.add_format({'bold': True, 'font_size': 10})
+    fmt_box = workbook.add_format({'border': 2, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+    fmt_head = workbook.add_format({'border': 1, 'bold': True, 'bg_color': '#D9D9D9', 'align': 'center'})
+    fmt_cell = workbook.add_format({'border': 1, 'align': 'center'})
+    fmt_name = workbook.add_format({'border': 1, 'align': 'left', 'indent': 1})
 
-    # SETUP COLONNE
-    col_widths = [8, 8, 4, 4, 6, 35, 10, 18, 4, 4]
-    for i, w in enumerate(col_widths):
-        worksheet.set_column(i, i, w)
-
-    # 1. INTESTAZIONE (A1:E5 e F1:J5)
-    worksheet.merge_range('A1:E5', "F.I.G.C. L.N.D.\nZENITH PRATO S.S.D.R.L.\nU10 PULCINI 2016", header_box)
-    worksheet.merge_range('F1:J5', "STAGIONE 2025/2026\nDistinta Atleti", header_box)
-
-    # 2. DATI GARA
-    worksheet.write('A7', f"Gara: ZENITH PRATO vs {info_gara['avversario']}", bold_txt)
-    worksheet.write('A8', f"Data: {info_gara['data']}   Ora: {info_gara['ora']}   Campo: {info_gara['campo']}", bold_txt)
-
-    # 3. TABELLA GIOCATORI
-    headers = ["Tit/Ris", "Maglia", "GG", "MM", "AA", "Nominativo", "Cap/Vice", "Matricola FIGC", "A", "E"]
-    for col, text in enumerate(headers):
-        worksheet.write(10, col, text, table_header)
-
-    row_idx = 11
-    for _, p in players_df.iterrows():
-        worksheet.write(row_idx, 0, "", cell_fmt)
-        worksheet.write(row_idx, 1, p['Maglia'], cell_fmt)
-        worksheet.write(row_idx, 2, p['GG'], cell_fmt)
-        worksheet.write(row_idx, 3, p['MM'], cell_fmt)
-        worksheet.write(row_idx, 4, p['AA'], cell_fmt)
-        worksheet.write(row_idx, 5, p['Nominativo'], name_fmt)
-        worksheet.write(row_idx, 6, "", cell_fmt)
-        worksheet.write(row_idx, 7, p['FIGC'], cell_fmt)
-        worksheet.write(row_idx, 8, "", cell_fmt)
-        worksheet.write(row_idx, 9, "", cell_fmt)
-        row_idx += 1
-
-    # 4. TABELLA STAFF
-    row_idx += 2
-    staff_headers = ["Ruolo", "Nominativo", "Matricola FIGC", "", "", "", "", "", "A", "E"]
-    for col, text in enumerate(staff_headers):
-        if text: worksheet.write(row_idx, col, text, table_header)
+    ws.set_column('F:F', 35) # Colonna nomi più larga
     
-    row_idx += 1
-    for _, s in staff_df.iterrows():
-        worksheet.write(row_idx, 0, s['Maglia'], cell_fmt) 
-        worksheet.merge_range(row_idx, 1, row_idx, 6, s['Nominativo'], name_fmt)
-        worksheet.write(row_idx, 7, s['FIGC'], cell_fmt)
-        worksheet.write(row_idx, 8, "", cell_fmt)
-        worksheet.write(row_idx, 9, "", cell_fmt)
+    # Intestazione
+    ws.merge_range('A1:E5', "F.I.G.C. L.N.D.\nZENITH PRATO\nU10 PULCINI 2016", fmt_box)
+    ws.merge_range('F1:J5', "STAGIONE 2025/2026\nDistinta Atleti", fmt_box)
+
+    # Dati Gara
+    ws.write('A7', f"Gara: ZENITH PRATO vs {info['avversario']}")
+    ws.write('A8', f"Data: {info['data']}  Ora: {info['ora']}  Campo: {info['campo']}")
+
+    # Tabella Giocatori
+    cols = ["Tit/Ris", "Maglia", "GG", "MM", "AA", "Nominativo", "Cap/Vice", "Matricola", "A", "E"]
+    for i, c in enumerate(cols):
+        ws.write(10, i, c, fmt_head)
+
+    r = 11
+    for _, row in players_df.iterrows():
+        ws.write(r, 0, "", fmt_cell)
+        ws.write(r, 1, row['Maglia'], fmt_cell)
+        ws.write(r, 2, row['GG'], fmt_cell)
+        ws.write(r, 3, row['MM'], fmt_cell)
+        ws.write(r, 4, row['AA'], fmt_cell)
+        ws.write(r, 5, row['Nominativo'], fmt_name)
+        ws.write(r, 6, "", fmt_cell)
+        ws.write(r, 7, row['FIGC'], fmt_cell)
+        ws.write(r, 8, "", fmt_cell)
+        ws.write(r, 9, "", fmt_cell)
+        r += 1
+
+    # Tabella Staff
+    r += 2
+    ws.write(r, 0, "Ruolo", fmt_head)
+    ws.merge_range(r, 1, r, 6, "Nominativo", fmt_head)
+    ws.write(r, 7, "Matricola", fmt_head)
+    
+    r += 1
+    for _, row in staff_df.iterrows():
+        ws.write(r, 0, row['Maglia'], fmt_cell)
+        ws.merge_range(r, 1, r, 6, row['Nominativo'], fmt_name)
+        ws.write(r, 7, row['FIGC'], fmt_cell)
+        r += 1
+
+    workbook.close()
+    return output.getvalue()
+
+# UI STREAMLIT
+st.title("⚽ Zenith Prato - Distinte")
+
+if 'data' not in st.session_state:
+    st.session_state.data = carica_db()
+
+# Sidebar
+st.sidebar.header("Dati Gara")
+info = {
+    "avversario": st.sidebar.text_input("Avversario", "Inserisci Squadra"),
+    "data": st.sidebar.text_input("Data", "14/04/2026"),
+    "ora": st.sidebar.text_input("Ora", "10:30"),
+    "campo": st.sidebar.text_input("Campo", "Chiavacci")
+}
+
+df = st.session_state.data
+c1, c2 = st.columns(2)
+
+with c1:
+    giocatori = df[df['Tipo'] == 'Giocatore']
+    scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
+    df_p = giocatori[giocatori['Nominativo'].isin(scelti_p)]
+
+with c2:
+    staff = df[df['Tipo'] == 'Staff']
+    scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
+    df_s = staff[staff['Nominativo'].isin(scelti_s)]
+
+if not df_p.empty:
+    file_ex = genera_excel(df_p, df_s, info)
+    st.download_button("📥 Scarica Excel", file_ex, f"Distinta_{info['avversario']}.xlsx")
