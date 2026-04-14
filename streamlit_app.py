@@ -4,12 +4,12 @@ import os
 from io import BytesIO
 import xlsxwriter
 
-# 1. CONFIGURAZIONE (Deve essere la prima istruzione)
+# 1. CONFIGURAZIONE
 st.set_page_config(page_title="Zenith Prato - Distinte", layout="wide")
 
 DB_FILE = "Database_Tesserati.csv"
 
-# Dati di emergenza se il file non esiste
+# Dati di backup pronti all'uso
 DATA_INIZIALE = [
     ["Giocatore", "7", "26", "05", "2016", "BARDAZZI CESARE", "4157212"],
     ["Giocatore", "21", "05", "11", "2016", "BODDI EDOARDO", "3757322"],
@@ -45,11 +45,20 @@ DATA_INIZIALE = [
 ]
 
 def carica_db():
+    # Se il file non esiste, lo creiamo
     if not os.path.exists(DB_FILE):
         df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
         df.to_csv(DB_FILE, index=False)
         return df
-    return pd.read_csv(DB_FILE, dtype=str).fillna("")
+    
+    try:
+        # Proviamo a leggere. Se è vuoto, pd.read_csv solleverà EmptyDataError
+        return pd.read_csv(DB_FILE, dtype=str).fillna("")
+    except Exception:
+        # Se il file è vuoto o corrotto, lo resettiamo con i dati iniziali
+        df = pd.DataFrame(DATA_INIZIALE, columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
+        df.to_csv(DB_FILE, index=False)
+        return df
 
 def genera_excel(players_df, staff_df, info):
     output = BytesIO()
@@ -62,17 +71,14 @@ def genera_excel(players_df, staff_df, info):
     fmt_cell = workbook.add_format({'border': 1, 'align': 'center'})
     fmt_name = workbook.add_format({'border': 1, 'align': 'left', 'indent': 1})
 
-    ws.set_column('F:F', 35) # Colonna nomi più larga
+    ws.set_column('F:F', 35) 
     
-    # Intestazione
     ws.merge_range('A1:E5', "F.I.G.C. L.N.D.\nZENITH PRATO\nU10 PULCINI 2016", fmt_box)
     ws.merge_range('F1:J5', "STAGIONE 2025/2026\nDistinta Atleti", fmt_box)
 
-    # Dati Gara
     ws.write('A7', f"Gara: ZENITH PRATO vs {info['avversario']}")
     ws.write('A8', f"Data: {info['data']}  Ora: {info['ora']}  Campo: {info['campo']}")
 
-    # Tabella Giocatori
     cols = ["Tit/Ris", "Maglia", "GG", "MM", "AA", "Nominativo", "Cap/Vice", "Matricola", "A", "E"]
     for i, c in enumerate(cols):
         ws.write(10, i, c, fmt_head)
@@ -91,7 +97,6 @@ def genera_excel(players_df, staff_df, info):
         ws.write(r, 9, "", fmt_cell)
         r += 1
 
-    # Tabella Staff
     r += 2
     ws.write(r, 0, "Ruolo", fmt_head)
     ws.merge_range(r, 1, r, 6, "Nominativo", fmt_head)
@@ -107,16 +112,16 @@ def genera_excel(players_df, staff_df, info):
     workbook.close()
     return output.getvalue()
 
-# UI STREAMLIT
+# LOGICA UI
 st.title("⚽ Zenith Prato - Distinte")
 
+# Carichiamo i dati nel session_state una sola volta
 if 'data' not in st.session_state:
     st.session_state.data = carica_db()
 
-# Sidebar
 st.sidebar.header("Dati Gara")
 info = {
-    "avversario": st.sidebar.text_input("Avversario", "Inserisci Squadra"),
+    "avversario": st.sidebar.text_input("Avversario", "SQUADRA OSPITE"),
     "data": st.sidebar.text_input("Data", "14/04/2026"),
     "ora": st.sidebar.text_input("Ora", "10:30"),
     "campo": st.sidebar.text_input("Campo", "Chiavacci")
@@ -137,4 +142,6 @@ with c2:
 
 if not df_p.empty:
     file_ex = genera_excel(df_p, df_s, info)
-    st.download_button("📥 Scarica Excel", file_ex, f"Distinta_{info['avversario']}.xlsx")
+    st.download_button("📥 Scarica Distinta Excel", file_ex, f"Distinta_{info['avversario']}.xlsx")
+else:
+    st.info("Scegli i giocatori per generare il file.")
