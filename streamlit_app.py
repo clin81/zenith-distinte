@@ -23,17 +23,48 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # --- DATI GARA ---
-    # NOTA: Se queste celle sono unite, scrivi sempre sulla PRIMA del gruppo.
-    # Esempio: Se B7 e C7 sono unite, scrivi in B7.
+    # --- DATI GARA (MODIFICATI PER EVITARE CELLE UNITE) ---
+    # Usiamo solo le celle iniziali dei gruppi uniti
     try:
+        # Riga 7: Di solito è un unico grande blocco da B7 in poi
         ws['B7'] = f"Gara: ZENITH PRATO vs {info['avversario']}"
+        
+        # Riga 8: Spesso divisa in Data (B8), Ora (D8), Campo (F8)
         ws['B8'] = f"Data: {info['data']}"
-        ws['E8'] = f"Ora: {info['ora']}"  # Se dà errore qui, prova a cambiare in 'D8'
-        ws['G8'] = f"Campo: {info['campo']}" # Se dà errore qui, prova a cambiare in 'F8'
-    except AttributeError:
-        st.error("Errore nelle celle dell'intestazione (celle unite). Controlla le coordinate B7, B8, E8.")
+        
+        # Se E8 era il problema, scriviamo in D8 che è l'inizio del blocco
+        ws['D8'] = f"Ora: {info['ora']}" 
+        
+        # Se G8 era il problema, proviamo F8 o H8
+        ws['F8'] = f"Campo: {info['campo']}"
+        
+    except AttributeError as e:
+        # Se capita ancora, stampiamo l'errore esatto ma non blocchiamo l'app
+        st.warning(f"Nota: Non ho potuto scrivere in alcune celle dell'intestazione: {e}")
 
+    # --- GIOCATORI (Inizio riga 18) ---
+    # Qui usiamo le colonne C, D, E, F, G, I come visto nel tuo schema
+    r_idx = 18
+    for _, row in players_df.iterrows():
+        ws[f'C{r_idx}'] = row['Maglia']
+        ws[f'D{r_idx}'] = row['GG']
+        ws[f'E{r_idx}'] = row['MM']
+        ws[f'F{r_idx}'] = row['AA']
+        ws[f'G{r_idx}'] = row['Nominativo']
+        ws[f'I{r_idx}'] = row['FIGC']
+        r_idx += 1
+
+    # --- STAFF (Inizio riga 35) ---
+    s_idx = 35
+    for _, row in staff_df.iterrows():
+        ws[f'C{s_idx}'] = row['Maglia'] 
+        ws[f'G{s_idx}'] = row['Nominativo']
+        ws[f'I{s_idx}'] = row['FIGC']
+        s_idx += 1
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
     # --- GIOCATORI (Inizio riga 18) ---
     r_idx = 18
     for _, row in players_df.iterrows():
