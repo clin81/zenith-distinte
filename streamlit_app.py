@@ -37,16 +37,20 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # --- DATI GARA (Usiamo safe_write per evitare crash) ---
+    # --- DATI GARA ---
+    # Scriviamo l'avversario in G7 (accanto a Zenith Prato S.S.D.R.L. Vs)
+    safe_write(ws, 'G7', info['avversario'])
+    
+    # Altri dati intestazione (B7, B8, D8, F8)
     safe_write(ws, 'B7', f"Gara: ZENITH PRATO vs {info['avversario']}")
     safe_write(ws, 'B8', f"Data: {info['data']}")
-    safe_write(ws, 'D8', f"Ora: {info['ora']}")   # Proviamo D8 invece di E8
-    safe_write(ws, 'F8', f"Campo: {info['campo']}") # Proviamo F8 invece di G8
+    safe_write(ws, 'D8', f"Ora: {info['ora']}")
+    safe_write(ws, 'F8', f"Campo: {info['campo']}")
 
-    # --- GIOCATORI (Inizio riga 12) ---
-    # Basato sul tuo schema: C=Maglia, D=GG, E=MM, F=AA, G=Nominativo, I=Matricola
-    r_idx = 12
+    # --- GIOCATORI: INIZIO RIGA 12 ---
+    r_idx = 12 
     for _, row in players_df.iterrows():
+        # Colonne: C=Maglia, D=GG, E=MM, F=AA, G=Nominativo, I=Matricola
         safe_write(ws, f'C{r_idx}', row['Maglia'])
         safe_write(ws, f'D{r_idx}', row['GG'])
         safe_write(ws, f'E{r_idx}', row['MM'])
@@ -55,59 +59,14 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row['FIGC'])
         r_idx += 1
 
-    # --- STAFF (Inizio riga 39) ---
+    # --- STAFF: INIZIO RIGA 39 ---
+    # Spostato da 35 a 39 come richiesto
     s_idx = 39
     for _, row in staff_df.iterrows():
-        safe_write(ws, f'C{s_idx}', row['Maglia']) # All./Dir.
+        # Lo staff usa solitamente le stesse colonne del nominativo e matricola
+        safe_write(ws, f'C{s_idx}', row['Maglia']) # In questo caso è il Ruolo (All/Dir)
         safe_write(ws, f'G{s_idx}', row['Nominativo'])
         safe_write(ws, f'I{s_idx}', row['FIGC'])
-        s_idx += 1
-
-    output = BytesIO()
-    wb.save(output)
-    return output.getvalue()
-
-    # --- GIOCATORI (Inizio riga 12) ---
-    # Qui usiamo le colonne C, D, E, F, G, I come visto nel tuo schema
-    r_idx = 12
-    for _, row in players_df.iterrows():
-        ws[f'C{r_idx}'] = row['Maglia']
-        ws[f'D{r_idx}'] = row['GG']
-        ws[f'E{r_idx}'] = row['MM']
-        ws[f'F{r_idx}'] = row['AA']
-        ws[f'G{r_idx}'] = row['Nominativo']
-        ws[f'I{r_idx}'] = row['FIGC']
-        r_idx += 1
-
-    # --- STAFF (Inizio riga 39) ---
-    s_idx = 39
-    for _, row in staff_df.iterrows():
-        ws[f'C{s_idx}'] = row['Maglia'] 
-        ws[f'G{s_idx}'] = row['Nominativo']
-        ws[f'I{s_idx}'] = row['FIGC']
-        s_idx += 1
-
-    output = BytesIO()
-    wb.save(output)
-    return output.getvalue()
-    # --- GIOCATORI (Inizio riga 12) ---
-    r_idx = 12
-    for _, row in players_df.iterrows():
-        # Scriviamo nelle colonne C, D, E, F, G, I
-        ws[f'C{r_idx}'] = row['Maglia']
-        ws[f'D{r_idx}'] = row['GG']
-        ws[f'E{r_idx}'] = row['MM']
-        ws[f'F{r_idx}'] = row['AA']
-        ws[f'G{r_idx}'] = row['Nominativo']
-        ws[f'I{r_idx}'] = row['FIGC']
-        r_idx += 1
-
-    # --- STAFF (Inizio riga 39) ---
-    s_idx = 39
-    for _, row in staff_df.iterrows():
-        ws[f'C{s_idx}'] = row['Maglia'] # All./Dir.
-        ws[f'G{s_idx}'] = row['Nominativo']
-        ws[f'I{s_idx}'] = row['FIGC']
         s_idx += 1
 
     output = BytesIO()
