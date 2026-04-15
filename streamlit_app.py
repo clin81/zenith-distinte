@@ -37,20 +37,22 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # --- DATI GARA (Logica di aggiunta testo) ---
-    # 1. Leggiamo il contenuto attuale di G7 (es. "Zenith Prato S.S.D.R.L. Vs ")
-    contenuto_fisso = ws['G7'].value if ws['G7'].value else "Zenith Prato S.S.D.R.L. Vs "
+    # --- DATI GARA ---
+    # 1. Avversario in G7 (mantiene il testo fisso "Vs")
+    testo_precedente = ws['G7'].value if ws['G7'].value else "Zenith Prato S.S.D.R.L. Vs "
+    safe_write(ws, 'G7', f"{testo_precedente} {info['avversario']}")
     
-    # 2. Scriviamo il contenuto fisso + l'avversario
-    safe_write(ws, 'G7', f"{contenuto_fisso} {info['avversario']}")
+    # 2. Data e Ora insieme in G8
+    safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     
-    # Resto dell'intestazione
+    # 3. Campo in G9
+    safe_write(ws, 'G9', info['campo'])
+
+    # 4. Altri dati (opzionali, se vuoi mantenerli anche in B7/B8)
     safe_write(ws, 'B7', f"Gara: ZENITH PRATO vs {info['avversario']}")
     safe_write(ws, 'B8', f"Data: {info['data']}")
-    safe_write(ws, 'D8', f"Ora: {info['ora']}")
-    safe_write(ws, 'F8', f"Campo: {info['campo']}")
 
-    # --- GIOCATORI: RIGA 12 ---
+    # --- GIOCATORI: INIZIO RIGA 12 ---
     r_idx = 12 
     for _, row in players_df.iterrows():
         safe_write(ws, f'C{r_idx}', row['Maglia'])
@@ -61,7 +63,7 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row['FIGC'])
         r_idx += 1
 
-    # --- STAFF: RIGA 39 ---
+    # --- STAFF: INIZIO RIGA 39 ---
     s_idx = 39
     for _, row in staff_df.iterrows():
         safe_write(ws, f'C{s_idx}', row['Maglia']) 
@@ -72,6 +74,8 @@ def compila_template(players_df, staff_df, info):
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
+
+
 # --- INTERFACCIA STREAMLIT ---
 st.title("⚽ Zenith Prato - Generatore Distinte")
 
