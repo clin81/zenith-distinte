@@ -43,9 +43,9 @@ def compila_template(players_df, staff_df, info):
     safe_write(ws, 'D8', f"Ora: {info['ora']}")   # Proviamo D8 invece di E8
     safe_write(ws, 'F8', f"Campo: {info['campo']}") # Proviamo F8 invece di G8
 
-    # --- GIOCATORI (Inizio riga 18) ---
+    # --- GIOCATORI (Inizio riga 12) ---
     # Basato sul tuo schema: C=Maglia, D=GG, E=MM, F=AA, G=Nominativo, I=Matricola
-    r_idx = 18
+    r_idx = 12
     for _, row in players_df.iterrows():
         safe_write(ws, f'C{r_idx}', row['Maglia'])
         safe_write(ws, f'D{r_idx}', row['GG'])
@@ -55,8 +55,8 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row['FIGC'])
         r_idx += 1
 
-    # --- STAFF (Inizio riga 35) ---
-    s_idx = 35
+    # --- STAFF (Inizio riga 39) ---
+    s_idx = 39
     for _, row in staff_df.iterrows():
         safe_write(ws, f'C{s_idx}', row['Maglia']) # All./Dir.
         safe_write(ws, f'G{s_idx}', row['Nominativo'])
@@ -67,9 +67,9 @@ def compila_template(players_df, staff_df, info):
     wb.save(output)
     return output.getvalue()
 
-    # --- GIOCATORI (Inizio riga 18) ---
+    # --- GIOCATORI (Inizio riga 12) ---
     # Qui usiamo le colonne C, D, E, F, G, I come visto nel tuo schema
-    r_idx = 18
+    r_idx = 12
     for _, row in players_df.iterrows():
         ws[f'C{r_idx}'] = row['Maglia']
         ws[f'D{r_idx}'] = row['GG']
@@ -79,8 +79,8 @@ def compila_template(players_df, staff_df, info):
         ws[f'I{r_idx}'] = row['FIGC']
         r_idx += 1
 
-    # --- STAFF (Inizio riga 35) ---
-    s_idx = 35
+    # --- STAFF (Inizio riga 39) ---
+    s_idx = 39
     for _, row in staff_df.iterrows():
         ws[f'C{s_idx}'] = row['Maglia'] 
         ws[f'G{s_idx}'] = row['Nominativo']
@@ -90,8 +90,8 @@ def compila_template(players_df, staff_df, info):
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
-    # --- GIOCATORI (Inizio riga 18) ---
-    r_idx = 18
+    # --- GIOCATORI (Inizio riga 12) ---
+    r_idx = 12
     for _, row in players_df.iterrows():
         # Scriviamo nelle colonne C, D, E, F, G, I
         ws[f'C{r_idx}'] = row['Maglia']
@@ -102,8 +102,8 @@ def compila_template(players_df, staff_df, info):
         ws[f'I{r_idx}'] = row['FIGC']
         r_idx += 1
 
-    # --- STAFF (Inizio riga 35) ---
-    s_idx = 35
+    # --- STAFF (Inizio riga 39) ---
+    s_idx = 39
     for _, row in staff_df.iterrows():
         ws[f'C{s_idx}'] = row['Maglia'] # All./Dir.
         ws[f'G{s_idx}'] = row['Nominativo']
