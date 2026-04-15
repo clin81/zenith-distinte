@@ -19,28 +19,53 @@ def carica_db():
     except:
         return pd.DataFrame(columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
 
+def safe_write(ws, cell_coord, value):
+    """Scrive in una cella gestendo i blocchi di celle unite."""
+    from openpyxl.cell.cell import MergedCell
+    cell = ws[cell_coord]
+    if isinstance(cell, MergedCell):
+        # Se la cella è unita, cerchiamo la cella 'madre' del blocco
+        for merged_range in ws.merged_cells.ranges:
+            if cell_coord in merged_range:
+                # Scriviamo nella cella in alto a sinistra del range unito
+                ws.cell(row=merged_range.min_row, column=merged_range.min_col).value = value
+                return
+    else:
+        cell.value = value
+
 def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # --- DATI GARA (MODIFICATI PER EVITARE CELLE UNITE) ---
-    # Usiamo solo le celle iniziali dei gruppi uniti
-    try:
-        # Riga 7: Di solito è un unico grande blocco da B7 in poi
-        ws['B7'] = f"Gara: ZENITH PRATO vs {info['avversario']}"
-        
-        # Riga 8: Spesso divisa in Data (B8), Ora (D8), Campo (F8)
-        ws['B8'] = f"Data: {info['data']}"
-        
-        # Se E8 era il problema, scriviamo in D8 che è l'inizio del blocco
-        ws['D8'] = f"Ora: {info['ora']}" 
-        
-        # Se G8 era il problema, proviamo F8 o H8
-        ws['F8'] = f"Campo: {info['campo']}"
-        
-    except AttributeError as e:
-        # Se capita ancora, stampiamo l'errore esatto ma non blocchiamo l'app
-        st.warning(f"Nota: Non ho potuto scrivere in alcune celle dell'intestazione: {e}")
+    # --- DATI GARA (Usiamo safe_write per evitare crash) ---
+    safe_write(ws, 'B7', f"Gara: ZENITH PRATO vs {info['avversario']}")
+    safe_write(ws, 'B8', f"Data: {info['data']}")
+    safe_write(ws, 'D8', f"Ora: {info['ora']}")   # Proviamo D8 invece di E8
+    safe_write(ws, 'F8', f"Campo: {info['campo']}") # Proviamo F8 invece di G8
+
+    # --- GIOCATORI (Inizio riga 18) ---
+    # Basato sul tuo schema: C=Maglia, D=GG, E=MM, F=AA, G=Nominativo, I=Matricola
+    r_idx = 18
+    for _, row in players_df.iterrows():
+        safe_write(ws, f'C{r_idx}', row['Maglia'])
+        safe_write(ws, f'D{r_idx}', row['GG'])
+        safe_write(ws, f'E{r_idx}', row['MM'])
+        safe_write(ws, f'F{r_idx}', row['AA'])
+        safe_write(ws, f'G{r_idx}', row['Nominativo'])
+        safe_write(ws, f'I{r_idx}', row['FIGC'])
+        r_idx += 1
+
+    # --- STAFF (Inizio riga 35) ---
+    s_idx = 35
+    for _, row in staff_df.iterrows():
+        safe_write(ws, f'C{s_idx}', row['Maglia']) # All./Dir.
+        safe_write(ws, f'G{s_idx}', row['Nominativo'])
+        safe_write(ws, f'I{s_idx}', row['FIGC'])
+        s_idx += 1
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
 
     # --- GIOCATORI (Inizio riga 18) ---
     # Qui usiamo le colonne C, D, E, F, G, I come visto nel tuo schema
