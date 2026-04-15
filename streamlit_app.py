@@ -37,20 +37,22 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # --- DATI GARA ---
-    # Scriviamo l'avversario in G7 (accanto a Zenith Prato S.S.D.R.L. Vs)
-    safe_write(ws, 'G7', info['avversario'])
+    # --- DATI GARA (Logica di aggiunta testo) ---
+    # 1. Leggiamo il contenuto attuale di G7 (es. "Zenith Prato S.S.D.R.L. Vs ")
+    contenuto_fisso = ws['G7'].value if ws['G7'].value else "Zenith Prato S.S.D.R.L. Vs "
     
-    # Altri dati intestazione (B7, B8, D8, F8)
+    # 2. Scriviamo il contenuto fisso + l'avversario
+    safe_write(ws, 'G7', f"{contenuto_fisso} {info['avversario']}")
+    
+    # Resto dell'intestazione
     safe_write(ws, 'B7', f"Gara: ZENITH PRATO vs {info['avversario']}")
     safe_write(ws, 'B8', f"Data: {info['data']}")
     safe_write(ws, 'D8', f"Ora: {info['ora']}")
     safe_write(ws, 'F8', f"Campo: {info['campo']}")
 
-    # --- GIOCATORI: INIZIO RIGA 12 ---
+    # --- GIOCATORI: RIGA 12 ---
     r_idx = 12 
     for _, row in players_df.iterrows():
-        # Colonne: C=Maglia, D=GG, E=MM, F=AA, G=Nominativo, I=Matricola
         safe_write(ws, f'C{r_idx}', row['Maglia'])
         safe_write(ws, f'D{r_idx}', row['GG'])
         safe_write(ws, f'E{r_idx}', row['MM'])
@@ -59,12 +61,10 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row['FIGC'])
         r_idx += 1
 
-    # --- STAFF: INIZIO RIGA 39 ---
-    # Spostato da 35 a 39 come richiesto
+    # --- STAFF: RIGA 39 ---
     s_idx = 39
     for _, row in staff_df.iterrows():
-        # Lo staff usa solitamente le stesse colonne del nominativo e matricola
-        safe_write(ws, f'C{s_idx}', row['Maglia']) # In questo caso è il Ruolo (All/Dir)
+        safe_write(ws, f'C{s_idx}', row['Maglia']) 
         safe_write(ws, f'G{s_idx}', row['Nominativo'])
         safe_write(ws, f'I{s_idx}', row['FIGC'])
         s_idx += 1
@@ -72,7 +72,6 @@ def compila_template(players_df, staff_df, info):
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
-
 # --- INTERFACCIA STREAMLIT ---
 st.title("⚽ Zenith Prato - Generatore Distinte")
 
