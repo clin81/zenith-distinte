@@ -18,14 +18,12 @@ def carica_db():
         if df is None or df.empty:
             return pd.DataFrame(columns=colonne_necessarie)
         
-        # Sincronizza colonne mancanti
         for col in colonne_necessarie:
             if col not in df.columns:
                 df[col] = ""
         
-        # SBLOCCO MODIFICA MAGLIA: Forza il tipo numerico per l'editor
+        # SBLOCCO MAGLIA: Forza il tipo numerico
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
-        
         return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
@@ -33,7 +31,7 @@ def carica_db():
 
 def salva_db(df):
     try:
-        df = df.fillna("") # Pulizia celle vuote
+        df = df.fillna("")
         conn.update(data=df)
         st.cache_data.clear()
         return True
@@ -56,13 +54,90 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
     
-    # Scrittura Intestazione
+    # Intestazione
     safe_write(ws, 'G7', f"Zenith Prato S.S.D.R.L. Vs {info['avversario']}")
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Scrittura Giocatori (Riga 12)
+    # Giocatori (Riga 12)
     r_idx = 12 
     for _, row in players_df.iterrows():
         safe_write(ws, f'C{r_idx}', row.get('Maglia', ''))
-        safe_write(ws, f'D{r_idx}', row.get('
+        safe_write(ws, f'D{r_idx}', row.get('GG', ''))
+        safe_write(ws, f'E{r_idx}', row.get('MM', ''))
+        safe_write(ws, f'F{r_idx}', row.get('AA', ''))
+        safe_write(ws, f'G{r_idx}', row.get('Nominativo', ''))
+        safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
+        r_idx += 1
+
+    # Staff (Riga 39)
+    s_idx = 39
+    for _, row in staff_df.iterrows():
+        safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
+        safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
+        s_idx += 1
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+st.title("⚽ Zenith Prato - Sistema Distinte")
+tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
+
+# --- TABELLA 2: GESTIONE DATABASE ---
+with tab_database:
+    st.header("Anagrafica Tesserati")
+    df_db = carica_db()
+    
+    df_editato = st.data_editor(
+        df_db, 
+        num_rows="dynamic", 
+        use_container_width=True, 
+        key="db_editor",
+        column_config={
+            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1),
+            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True)
+        }
+    )
+    
+    if st.button("💾 Salva modifiche"):
+        if salva_db(df_editato):
+            st.success("Database aggiornato!")
+            st.rerun()
+
+# --- TABELLA 1: GENERAZIONE DISTINTA ---
+with tab_distinta:
+    st.header("📝 Dati della Gara")
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
+            campo = st.text_input("Luogo/Campo", "Chiavacci")
+        with c2:
+            data_g = st.text_input("Data (GG/MM/AAAA)", "15/04/2026")
+            ora_g = st.text_input("Ora Inizio", "10:30")
+
+    info = {"avversario": avversario, "campo": campo, "data": data_g, "ora": ora_g}
+    df_lavoro = carica_db()
+    
+    if not df_lavoro.empty:
+        giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
+        staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
+
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
+        with col2:
+            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
+
+        if st.button("🚀 Genera Distinta Excel", use_container_width=True):
+            if scelti_p:
+                excel_final = compila_template(
+                    giocatori[giocatori['Nominativo'].isin(scelti_p)], 
+                    staff[staff['Nominativo'].isin(scelti_s)], 
+                    info
+                )
+                st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", use_container_width=True)
+            else:
+                st.error("Seleziona i giocatori!")
