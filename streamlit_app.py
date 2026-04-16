@@ -6,7 +6,6 @@ from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Zenith Prato - Gestione Distinte", layout="wide")
-
 TEMPLATE_FILE = "distinta_vuota.xlsx"
 
 # --- CONNESSIONE GOOGLE SHEETS ---
@@ -15,16 +14,19 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        colonne_necessarie = ["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"]
+        # Ordine desiderato: Nominativo per primo
+        colonne_necessarie = ["Nominativo", "Tipo", "Maglia", "GG", "MM", "AA", "FIGC"]
         if df is None or df.empty:
             return pd.DataFrame(columns=colonne_necessarie)
+        
+        # Assicuriamoci che le colonne siano nell'ordine giusto
         for col in colonne_necessarie:
             if col not in df.columns:
                 df[col] = ""
-        return df
+        return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame(columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
+        return pd.DataFrame(columns=["Nominativo", "Tipo", "Maglia", "GG", "MM", "AA", "FIGC"])
 
 def salva_db(df):
     try:
@@ -80,26 +82,21 @@ tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione A
 # --- TABELLA 2: GESTIONE DATABASE ---
 with tab_database:
     st.header("Modifica o Aggiungi Tesserati")
+    st.info("💡 Inserisci il nome nella prima colonna. Nella colonna 'Tipo' scrivi esattamente 'Giocatore' o 'Staff'.")
+    
     df_db = carica_db()
     
-    config_colonne = {}
-    # Protezione contro versioni vecchie di Streamlit
-    if hasattr(st, "column_config"):
-        try:
-            config_colonne = {
-                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True),
-                "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d"),
-                "GG": st.column_config.NumberColumn("Giorno", format="%02d"),
-                "MM": st.column_config.NumberColumn("Mese", format="%02d"),
-            }
-        except:
-            config_colonne = {}
-
-    df_editato = st.data_editor(df_db, num_rows="dynamic", use_container_width=True, key="db_editor", column_config=config_colonne)
+    # Versione stabile senza configurazioni avanzate per evitare AttributeError
+    df_editato = st.data_editor(
+        df_db, 
+        num_rows="dynamic", 
+        use_container_width=True, 
+        key="db_editor"
+    )
     
     if st.button("💾 Salva modifiche su Google Sheets"):
         if salva_db(df_editato):
-            st.success("Database aggiornato!")
+            st.success("Database aggiornato con successo!")
             st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
@@ -114,14 +111,17 @@ with tab_distinta:
 
     df_lavoro = carica_db()
     if not df_lavoro.empty:
-        giocatori = df_lavoro[df_lavoro['Tipo'] == 'Giocatore']
-        staff = df_lavoro[df_lavoro['Tipo'] == 'Staff']
+        # Filtro basato sulla colonna 'Tipo'
+        giocatori = df_lavoro[df_lavoro['Tipo'].str.lower() == 'giocatore']
+        staff = df_lavoro[df_lavoro['Tipo'].str.lower() == 'staff']
 
         col1, col2 = st.columns(2)
         with col1:
-            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
+            st.subheader("Giocatori")
+            scelti_p = st.multiselect("Seleziona:", giocatori['Nominativo'].tolist())
         with col2:
-            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
+            st.subheader("Staff")
+            scelti_s = st.multiselect("Seleziona:", staff['Nominativo'].tolist())
 
         if st.button("🚀 Genera File Excel", use_container_width=True):
             if scelti_p:
@@ -130,4 +130,4 @@ with tab_distinta:
             else:
                 st.error("Seleziona almeno un giocatore!")
     else:
-        st.warning("Database vuoto. Inserisci i dati nella scheda 'Gestione Anagrafica'.")
+        st.warning("Database vuoto. Inserisci i nomi nella scheda 'Gestione Anagrafica'.")
