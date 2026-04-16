@@ -76,7 +76,7 @@ def compila_template(players_df, staff_df, info):
     wb.save(output)
     return output.getvalue()
 
-st.title("⚽ Zenith Prato - Sistema Distinte")
+st.title("⚽ Zenith Prato - Distinta 2016")
 tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
 # --- TABELLA 2: GESTIONE DATABASE ---
