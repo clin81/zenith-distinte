@@ -10,13 +10,23 @@ st.set_page_config(page_title="Zenith Prato - Gestione Distinte", layout="wide")
 TEMPLATE_FILE = "distinta_vuota.xlsx"
 
 # --- CONNESSIONE GOOGLE SHEETS ---
-# Crea la connessione (le credenziali devono essere nei Secrets di Streamlit)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carica_db():
     try:
         # Legge i dati dal foglio Google
-        return conn.read(ttl="0") 
+        df = conn.read(ttl="0")
+        
+        # Se il foglio è vuoto o mancano colonne, definiamo la struttura base
+        colonne_necessarie = ["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"]
+        if df is None or df.empty:
+            return pd.DataFrame(columns=colonne_necessarie)
+        
+        # Assicuriamoci che tutte le colonne necessarie esistano (per evitare errori nel data_editor)
+        for col in colonne_necessarie:
+            if col not in df.columns:
+                df[col] = None
+        return df
     except Exception as e:
         st.error(f"Errore nel caricamento da Google Sheets: {e}")
         return pd.DataFrame(columns=["Tipo", "Maglia", "GG", "MM", "AA", "Nominativo", "FIGC"])
@@ -48,7 +58,7 @@ def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
 
-    # 1. Intestazione G7 (Aggiunge avversario al testo esistente)
+    # 1. Intestazione G7
     testo_fisso = ws['G7'].value if ws['G7'].value else "Zenith Prato S.S.D.R.L. Vs "
     safe_write(ws, 'G7', f"{testo_fisso} {info['avversario']}")
     
@@ -72,6 +82,7 @@ def compila_template(players_df, staff_df, info):
     # 5. Staff (Inizio riga 39)
     s_idx = 39
     for _, row in staff_df.iterrows():
+        # Lo staff solitamente non ha maglia, usiamo la colonna C per il ruolo se presente
         safe_write(ws, f'C{s_idx}', row['Maglia']) 
         safe_write(ws, f'G{s_idx}', row['Nominativo'])
         safe_write(ws, f'I{s_idx}', row['FIGC'])
@@ -89,19 +100,34 @@ tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione A
 # --- TABELLA 2: GESTIONE DATABASE ---
 with tab_database:
     st.header("Modifica o Aggiungi Tesserati")
+    st.info("💡 Per aggiungere qualcuno, scrivi nella riga vuota in fondo alla tabella. Ricorda di salvare!")
+    
     df_db = carica_db()
     
-    # Editor interattivo per aggiungere/modificare/eliminare
+    # Editor interattivo con menu a tendina per il Tipo
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="db_editor"
+        key="db_editor",
+        column_config={
+            "Tipo": st.column_config.SelectColumn(
+                "Tipo",
+                help="Seleziona se è un Giocatore o un membro dello Staff",
+                options=["Giocatore", "Staff"],
+                required=True,
+            ),
+            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1, max_value=99),
+            "GG": st.column_config.NumberColumn("Giorno (Nascita)", format="%02d", min_value=1, max_value=31),
+            "MM": st.column_config.NumberColumn("Mese (Nascita)", format="%02d", min_value=1, max_value=12),
+            "AA": st.column_config.NumberColumn("Anno (Nascita)", format="%d", help="Es. 2010"),
+        }
     )
     
     if st.button("💾 Salva modifiche su Google Sheets"):
         if salva_db(df_editato):
             st.success("Database aggiornato permanentemente!")
+            st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
 with tab_distinta:
@@ -116,28 +142,31 @@ with tab_distinta:
     df_lavoro = carica_db()
     
     if df_lavoro.empty:
-        st.warning("Il database è vuoto. Vai nella scheda 'Gestione Anagrafica' per inserire i dati.")
+        st.warning("⚠️ Il database è vuoto. Vai nella scheda 'Gestione Anagrafica' per inserire i primi nomi.")
     else:
+        # Filtriamo i dati (Case Sensitive: Giocatore/Staff)
+        giocatori = df_lavoro[df_lavoro['Tipo'] == 'Giocatore']
+        staff = df_lavoro[df_lavoro['Tipo'] == 'Staff']
+
         col1, col2 = st.columns(2)
         with col1:
-            giocatori = df_lavoro[df_lavoro['Tipo'] == 'Giocatore']
-            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
-        with col2:
-            staff = df_lavoro[df_lavoro['Tipo'] == 'Staff']
-            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
-
-        if st.button("🚀 Genera File Excel"):
-            if not scelti_p:
-                st.error("Seleziona almeno un giocatore!")
+            st.subheader("Seleziona Giocatori")
+            if giocatori.empty:
+                st.write("Nessun giocatore in archivio.")
+                scelti_p = []
             else:
-                df_p = giocatori[giocatori['Nominativo'].isin(scelti_p)]
-                df_s = staff[staff['Nominativo'].isin(scelti_s)]
-                
-                excel_final = compila_template(df_p, df_s, info)
-                
-                st.download_button(
-                    label="📥 Scarica Distinta Compilata",
-                    data=excel_final,
-                    file_name=f"Distinta_{info['avversario']}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                scelti_p = st.multiselect("Cerca per nome:", giocatori['Nominativo'].tolist())
+        
+        with col2:
+            st.subheader("Seleziona Staff")
+            if staff.empty:
+                st.write("Nessun membro staff in archivio.")
+                scelti_s = []
+            else:
+                scelti_s = st.multiselect("Cerca per nome:", staff['Nominativo'].tolist())
+
+        st.divider()
+
+        if st.button("🚀 Genera File Excel", use_container_width=True):
+            if not scelti_p:
+                st.error("Seleziona almeno un giocatore per la distinta!")
