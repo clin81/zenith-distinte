@@ -14,7 +14,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        # Aggiunta colonna 'Ruolo' per lo staff
+        # Includiamo 'Ruolo' per lo staff
         colonne_necessarie = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
         if df is None or df.empty:
             return pd.DataFrame(columns=colonne_necessarie)
@@ -23,6 +23,7 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
+        # Conversione sicura per la maglia
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         return df[colonne_necessarie]
     except Exception as e:
@@ -70,10 +71,10 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
         r_idx += 1
 
-    # Staff (Riga 39) - Scrive il RUOLO invece della maglia
+    # Staff (Riga 39) - Scrive il Ruolo (Allenatore/Dirigente) al posto della maglia
     s_idx = 39
     for _, row in staff_df.iterrows():
-        safe_write(ws, f'C{s_idx}', row.get('Ruolo', '')) # Scrive Allenatore/Dirigente qui
+        safe_write(ws, f'C{s_idx}', row.get('Ruolo', ''))
         safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
         safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
         s_idx += 1
@@ -88,33 +89,27 @@ tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione A
 # --- TABELLA 2: GESTIONE DATABASE ---
 with tab_database:
     st.header("Anagrafica Tesserati")
+    st.info("Istruzioni: scrivi 'Giocatore' o 'Staff' nella colonna Tipo. Per lo Staff, indica il Ruolo (es. Dirigente).")
+    
     df_db = carica_db()
     
-    config_sicura = {}
-    if hasattr(st, "column_config"):
-        config_sicura = {
-            "Maglia": st.column_config.NumberColumn("N° Maglia (Solo Giocatori)", format="%d", min_value=1),
-            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True),
-            "Ruolo": st.column_config.TextColumn("Ruolo Staff (es. Allenatore)", placeholder="Scrivi qui se Staff")
-        }
-
+    # PROTEZIONE: Rimosso column_config che causava l'AttributeError
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True, 
-        key="db_editor",
-        column_config=config_sicura
+        key="db_editor"
     )
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Database aggiornato!")
+            st.success("Dati sincronizzati con successo!")
             st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
 with tab_distinta:
     st.header("📝 Dati della Gara")
-    with st.container(border=True):
+    with st.container():
         c1, c2 = st.columns(2)
         with c1:
             avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
@@ -127,6 +122,7 @@ with tab_distinta:
     df_lavoro = carica_db()
     
     if not df_lavoro.empty:
+        # Filtro per tipo (case-insensitive)
         giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
         staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
 
@@ -146,4 +142,4 @@ with tab_distinta:
                 )
                 st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", use_container_width=True)
             else:
-                st.error("Seleziona i giocatori!")
+                st.error("Seleziona almeno un giocatore!")
