@@ -101,33 +101,56 @@ with tab_database:
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
 with tab_distinta:
-    st.sidebar.header("Dati della Gara")
+    st.header("📝 Compilazione Gara")
+    
+    # Pannello superiore per i dettagli della gara
+    with st.container(border=True):
+        st.subheader("Dettagli dell'Incontro")
+        c1, c2 = st.columns(2)
+        with c1:
+            avversario = st.text_input("Squadra Avversaria", value="SQUADRA OSPITE", help="Nome della squadra contro cui si gioca")
+            luogo = st.text_input("Campo di gioco", value="Chiavacci", help="Nome del campo o stadio")
+        with c2:
+            data_gara = st.text_input("Data (es. 15/04/2026)", value="15/04/2026")
+            ora_gara = st.text_input("Ora Inizio (es. 10:30)", value="10:30")
+
+    st.divider()
+    
+    # Raccolta dei dati per la funzione di compilazione
     info = {
-        "avversario": st.sidebar.text_input("Squadra Avversaria", "SQUADRA OSPITE"),
-        "data": st.sidebar.text_input("Data", "15/04/2026"),
-        "ora": st.sidebar.text_input("Ora Inizio", "10:30"),
-        "campo": st.sidebar.text_input("Nome Campo", "Chiavacci")
+        "avversario": avversario,
+        "campo": luogo,
+        "data": data_gara,
+        "ora": ora_gara
     }
 
     df_lavoro = carica_db()
     if not df_lavoro.empty:
-        # Filtro basato sulla colonna 'Tipo'
-        giocatori = df_lavoro[df_lavoro['Tipo'].str.lower() == 'giocatore']
-        staff = df_lavoro[df_lavoro['Tipo'].str.lower() == 'staff']
+        # Filtro per separare Giocatori e Staff
+        giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
+        staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
 
+        st.subheader("Selezione Tesserati")
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Giocatori")
-            scelti_p = st.multiselect("Seleziona:", giocatori['Nominativo'].tolist())
+            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
         with col2:
-            st.subheader("Staff")
-            scelti_s = st.multiselect("Seleziona:", staff['Nominativo'].tolist())
+            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
 
-        if st.button("🚀 Genera File Excel", use_container_width=True):
+        # Bottone finale con i dati aggiornati
+        if st.button("🚀 Genera e Scarica Distinta Excel", use_container_width=True):
             if scelti_p:
-                excel_final = compila_template(giocatori[giocatori['Nominativo'].isin(scelti_p)], staff[staff['Nominativo'].isin(scelti_s)], info)
-                st.download_button("📥 Scarica Distinta", excel_final, f"Distinta_{info['avversario']}.xlsx", use_container_width=True)
+                excel_final = compila_template(
+                    giocatori[giocatori['Nominativo'].isin(scelti_p)], 
+                    staff[staff['Nominativo'].isin(scelti_s)], 
+                    info
+                )
+                st.download_button(
+                    label="📥 Clicca qui per il Download",
+                    data=excel_final,
+                    file_name=f"Distinta_{avversario}_{data_gara.replace('/', '-')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
             else:
-                st.error("Seleziona almeno un giocatore!")
-    else:
-        st.warning("Database vuoto. Inserisci i nomi nella scheda 'Gestione Anagrafica'.")
+                st.error("Seleziona almeno un giocatore per procedere!")
