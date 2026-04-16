@@ -100,33 +100,39 @@ tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione A
 # --- TABELLA 2: GESTIONE DATABASE ---
 with tab_database:
     st.header("Modifica o Aggiungi Tesserati")
-    st.info("💡 Per aggiungere qualcuno, scrivi nella riga vuota in fondo alla tabella. Ricorda di salvare!")
+    st.info("💡 Scrivi nell'ultima riga per aggiungere. Seleziona una cella per modificare.")
     
     df_db = carica_db()
     
-    # Editor interattivo con menu a tendina per il Tipo
+    # Inizializziamo la configurazione come vuota
+    config_colonne = {}
+
+    # Controllo di sicurezza: se Streamlit supporta column_config, lo usiamo
+    if hasattr(st, "column_config"):
+        config_colonne = {
+            "Tipo": st.column_config.SelectColumn(
+                "Tipo",
+                options=["Giocatore", "Staff"],
+                required=True,
+            ),
+            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d"),
+            "GG": st.column_config.NumberColumn("Giorno", format="%02d"),
+            "MM": st.column_config.NumberColumn("Mese", format="%02d"),
+            "AA": st.column_config.NumberColumn("Anno", format="%d"),
+        }
+
+    # L'editor ora non crasha più: se config_colonne è vuoto, mostrerà una tabella standard
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True,
         key="db_editor",
-        column_config={
-            "Tipo": st.column_config.SelectColumn(
-                "Tipo",
-                help="Seleziona se è un Giocatore o un membro dello Staff",
-                options=["Giocatore", "Staff"],
-                required=True,
-            ),
-            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1, max_value=99),
-            "GG": st.column_config.NumberColumn("Giorno (Nascita)", format="%02d", min_value=1, max_value=31),
-            "MM": st.column_config.NumberColumn("Mese (Nascita)", format="%02d", min_value=1, max_value=12),
-            "AA": st.column_config.NumberColumn("Anno (Nascita)", format="%d", help="Es. 2010"),
-        }
+        column_config=config_colonne
     )
     
     if st.button("💾 Salva modifiche su Google Sheets"):
         if salva_db(df_editato):
-            st.success("Database aggiornato permanentemente!")
+            st.success("Database aggiornato con successo!")
             st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
