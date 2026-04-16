@@ -14,7 +14,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        colonne_necessarie = ["Nominativo", "Tipo", "Maglia", "GG", "MM", "AA", "FIGC"]
+        # Aggiunta colonna 'Ruolo' per lo staff
+        colonne_necessarie = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
         if df is None or df.empty:
             return pd.DataFrame(columns=colonne_necessarie)
         
@@ -22,12 +23,11 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
-        # SBLOCCO MAGLIA: Forza il tipo numerico per evitare blocchi nell'editor
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame(columns=["Nominativo", "Tipo", "Maglia", "GG", "MM", "AA", "FIGC"])
+        return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"])
 
 def salva_db(df):
     try:
@@ -70,9 +70,10 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
         r_idx += 1
 
-    # Staff (Riga 39)
+    # Staff (Riga 39) - Scrive il RUOLO invece della maglia
     s_idx = 39
     for _, row in staff_df.iterrows():
+        safe_write(ws, f'C{s_idx}', row.get('Ruolo', '')) # Scrive Allenatore/Dirigente qui
         safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
         safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
         s_idx += 1
@@ -89,16 +90,13 @@ with tab_database:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    # Logica di protezione: usiamo column_config solo se supportato
     config_sicura = {}
     if hasattr(st, "column_config"):
-        try:
-            config_sicura = {
-                "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1),
-                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True)
-            }
-        except:
-            config_sicura = {}
+        config_sicura = {
+            "Maglia": st.column_config.NumberColumn("N° Maglia (Solo Giocatori)", format="%d", min_value=1),
+            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True),
+            "Ruolo": st.column_config.TextColumn("Ruolo Staff (es. Allenatore)", placeholder="Scrivi qui se Staff")
+        }
 
     df_editato = st.data_editor(
         df_db, 
@@ -110,7 +108,7 @@ with tab_database:
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Database aggiornato con successo!")
+            st.success("Database aggiornato!")
             st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
@@ -148,4 +146,4 @@ with tab_distinta:
                 )
                 st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", use_container_width=True)
             else:
-                st.error("Seleziona almeno un giocatore!")
+                st.error("Seleziona i giocatori!")
