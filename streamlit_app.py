@@ -97,44 +97,11 @@ st.title("⚽ Zenith Prato - Sistema Distinte")
 
 tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
-# --- TABELLA 2: GESTIONE DATABASE ---
-with tab_database:
-    st.header("Modifica o Aggiungi Tesserati")
-    st.info("💡 Scrivi nell'ultima riga per aggiungere. Seleziona una cella per modificare.")
-    
-    df_db = carica_db()
-    
-    # Inizializziamo la configurazione come vuota
-    config_colonne = {}
-
-    # Controllo di sicurezza: se Streamlit supporta column_config, lo usiamo
-    if hasattr(st, "column_config"):
-        config_colonne = {
-            "Tipo": st.column_config.SelectColumn(
-                "Tipo",
-                options=["Giocatore", "Staff"],
-                required=True,
-            ),
-            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d"),
-            "GG": st.column_config.NumberColumn("Giorno", format="%02d"),
-            "MM": st.column_config.NumberColumn("Mese", format="%02d"),
-            "AA": st.column_config.NumberColumn("Anno", format="%d"),
-        }
-
-    # L'editor ora non crasha più: se config_colonne è vuoto, mostrerà una tabella standard
-    df_editato = st.data_editor(
-        df_db, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        key="db_editor",
-        column_config=config_colonne
-    )
-    
-    if st.button("💾 Salva modifiche su Google Sheets"):
-        if salva_db(df_editato):
-            st.success("Database aggiornato con successo!")
-            st.rerun()
-
+AttributeError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
+Traceback:
+File "/mount/src/zenith-distinte/streamlit_app.py", line 113, in <module>
+    "Tipo": st.column_config.SelectColumn(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
 with tab_distinta:
     st.sidebar.header("Dati della Gara")
