@@ -22,7 +22,7 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
-        # SBLOCCO MAGLIA: Forza il tipo numerico
+        # SBLOCCO MAGLIA: Forza il tipo numerico per evitare blocchi nell'editor
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         return df[colonne_necessarie]
     except Exception as e:
@@ -89,20 +89,28 @@ with tab_database:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
+    # Logica di protezione: usiamo column_config solo se supportato
+    config_sicura = {}
+    if hasattr(st, "column_config"):
+        try:
+            config_sicura = {
+                "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1),
+                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True)
+            }
+        except:
+            config_sicura = {}
+
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True, 
         key="db_editor",
-        column_config={
-            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1),
-            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True)
-        }
+        column_config=config_sicura
     )
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Database aggiornato!")
+            st.success("Database aggiornato con successo!")
             st.rerun()
 
 # --- TABELLA 1: GENERAZIONE DISTINTA ---
@@ -140,4 +148,4 @@ with tab_distinta:
                 )
                 st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", use_container_width=True)
             else:
-                st.error("Seleziona i giocatori!")
+                st.error("Seleziona almeno un giocatore!")
