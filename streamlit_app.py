@@ -34,6 +34,7 @@ def carica_db():
         for c in ["Capitano", "Portiere"]:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
         
+        # Ordinamento predefinito per la tabella: Staff sopra, poi Giocatori
         return df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
@@ -68,7 +69,7 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # --- ORDINAMENTO PER MAGLIA PRIMA DI SCRIVERE ---
+    # --- ORDINAMENTO PER MAGLIA PER L'EXCEL ---
     p_df = p_df.sort_values(by='Maglia', ascending=True)
 
     # --- SCRITTURA GIOCATORI (Dalla riga 12) ---
@@ -90,9 +91,10 @@ def compila_template(p_df, s_df, info):
     # --- SCRITTURA STAFF (Dalla riga 39) ---
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
-        safe_write(ws, f'C{r}', row.get('Ruolo', ''))       # Ruolo in C
-        safe_write(ws, f'D{r}', row.get('Nominativo', ''))  # Nominativo in D
-        safe_write(ws, f'I{r}', row.get('FIGC', ''))        # Matricola in I
+        # Ruolo in C, Nominativo in D, FIGC in I
+        safe_write(ws, f'C{r}', row.get('Ruolo', ''))       
+        safe_write(ws, f'D{r}', row.get('Nominativo', ''))  
+        safe_write(ws, f'I{r}', row.get('FIGC', ''))        
 
     out = BytesIO()
     wb.save(out)
@@ -112,35 +114,41 @@ with t2:
     
     c1, c2 = st.columns(2)
     with c1:
-        capitano = st.selectbox("Seleziona Capitano", ["Nessuno"] + giocatori_nomi, 
-                               index=(giocatori_nomi.index(df[df['Capitano']]['Nominativo'].iloc[0]) + 1) if not df[df['Capitano']].empty else 0)
+        # Trova il capitano attuale per impostare il default nel selettore
+        cap_corrente = df[df['Capitano'] == True]['Nominativo'].tolist()
+        idx_cap = (giocatori_nomi.index(cap_corrente[0]) + 1) if cap_corrente and cap_corrente[0] in giocatori_nomi else 0
+        capitano = st.selectbox("Seleziona Capitano", ["Nessuno"] + giocatori_nomi, index=idx_cap)
     with c2:
-        portiere = st.selectbox("Seleziona Portiere", ["Nessuno"] + giocatori_nomi,
-                               index=(giocatori_nomi.index(df[df['Portiere']]['Nominativo'].iloc[0]) + 1) if not df[df['Portiere']].empty else 0)
+        # Trova il portiere attuale
+        por_corrente = df[df['Portiere'] == True]['Nominativo'].tolist()
+        idx_por = (giocatori_nomi.index(por_corrente[0]) + 1) if por_corrente and por_corrente[0] in giocatori_nomi else 0
+        portiere = st.selectbox("Seleziona Portiere", ["Nessuno"] + giocatori_nomi, index=idx_por)
 
     st.subheader("📝 Dati Anagrafici")
+    # CORREZIONE: Variabile definita correttamente
     col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
-    df_vista = df[col_visibles].reset_index(drop=True)
+    df_vista = df[col_visibili].reset_index(drop=True)
     
     df_edit = st.data_editor(
         df_vista, 
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="final_flat_editor"
+        key="final_flat_editor_v3"
     )
     
     if st.button("💾 Salva modifiche Database", use_container_width=True):
-        # Controllo matricola FIGC (7 cifre)
+        # Controllo matricola FIGC (7 cifre) per segnalazione
         invalid_figc = df_edit[df_edit['FIGC'].astype(str).str.len() != 7]
         if not invalid_figc.empty:
-            st.warning(f"Nota: {len(invalid_figc)} tesserati hanno una matricola FIGC non standard.")
+            st.warning(f"Nota: {len(invalid_figc)} tesserati hanno una matricola FIGC non standard (diversa da 7 cifre).")
             
+        # Riapplichiamo Capitano e Portiere al dataframe da salvare
         df_edit['Capitano'] = df_edit['Nominativo'] == capitano
         df_edit['Portiere'] = df_edit['Nominativo'] == portiere
         
         if salva_db(df_edit):
-            st.success("Dati sincronizzati!")
+            st.success("Dati sincronizzati correttamente!")
             st.rerun()
 
 with t1:
@@ -161,9 +169,9 @@ with t1:
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
-            sel_p = st.multiselect("Seleziona Giocatori", gioc['Nominativo'].tolist())
+            sel_p = st.multiselect("Seleziona Giocatori convocati", gioc['Nominativo'].tolist())
         with col2:
-            sel_s = st.multiselect("Seleziona Staff", staf['Nominativo'].tolist())
+            sel_s = st.multiselect("Seleziona Staff presente", staf['Nominativo'].tolist())
 
         if st.button("🚀 Scarica Distinta Excel", use_container_width=True):
             if sel_p:
@@ -173,3 +181,5 @@ with t1:
                     {"avversario": avv, "campo": cmp, "data": dat, "ora": ora}
                 )
                 st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx", use_container_width=True)
+            else:
+                st.error("Seleziona almeno un giocatore per generare la distinta.")
