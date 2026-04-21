@@ -13,41 +13,23 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        # Tutte le colonne presenti nel database fisico
         col_db = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere", "Titolare"]
-        
         if df is None or df.empty:
             return pd.DataFrame(columns=col_db)
-        
         for col in col_db:
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere", "Titolare"] else ""
         
-        # Pulizia dati
-        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
-        df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
-        for c in ["Capitano", "Portiere", "Titolare"]:
-            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
-            
-        # ORDINAMENTO: Prima Ruolo, poi Nominativo
-        df = df.sort_values(by=['Ruolo', 'Nominativo'], ascending=[True, True])
+        # Ordinamento automatico: Ruolo e poi Nome
+        df = df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
         return df
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
         return pd.DataFrame()
 
-def salva_db(df_editato, df_originale):
+def salva_db(df_nuovo):
     try:
-        # Uniamo le modifiche fatte nella tabella visibile con i dati nascosti (Capitano/Portiere)
-        # Usiamo il Nominativo come chiave per non perdere i dati
-        df_originale.set_index('Nominativo', inplace=True)
-        df_editato.set_index('Nominativo', inplace=True)
-        
-        # Aggiorniamo solo le colonne visibili nell'editor
-        df_originale.update(df_editato)
-        df_final = df_originale.reset_index()
-        
-        conn.update(data=df_final)
+        conn.update(data=df_nuovo)
         st.cache_data.clear()
         return True
     except Exception as e:
@@ -72,14 +54,14 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Logica Titolari (Righe 12-22) e Riserve (Righe 23-33)
+    # Titolari (12-22) e Riserve (23-33)
     titolari = p_df[p_df['Titolare'] == True].head(11)
     riserve = p_df[p_df['Titolare'] == False].head(11)
 
     def scrivi_blocco(lista, start_row):
         for i, (_, row) in enumerate(lista.iterrows()):
             r = start_row + i
-            nome = str(row.get('Nominativo', ''))
+            nome = f"{row.get('Nominativo', '')}"
             if row.get('Capitano'): nome += " (C)"
             if row.get('Portiere'): nome += " (P)"
             safe_write(ws, f'C{r}', row.get('Maglia', ''))
@@ -92,7 +74,6 @@ def compila_template(p_df, s_df, info):
     scrivi_blocco(titolari, 12)
     scrivi_blocco(riserve, 23)
 
-    # Staff (Riga 39)
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
         safe_write(ws, f'C{r}', row.get('Ruolo', ''))
@@ -109,32 +90,24 @@ t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
 with t2:
     st.header("Anagrafica Tesserati")
-    df_full = carica_db()
+    df_db = carica_db()
     
-    # MOSTRA SOLO QUESTE COLONNE (Nasconde Capitano e Portiere)
-    colonne_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Titolare"]
-    df_vista = df_full[colonne_visibili].copy()
+    # Vista semplificata per evitare crash su versioni vecchie
+    # Nascondiamo Capitano e Portiere dalla vista ma li teniamo nel DF
+    col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Titolare"]
     
-    config = {
-        "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
-        "Titolare": st.column_config.CheckboxColumn("Titolare?"),
-        "Maglia": st.column_config.NumberColumn("N°", format="%d")
-    }
-
-    st.info("L'indice numerico a sinistra è nascosto. Capitano e Portiere rimangono salvati ma non visualizzati qui.")
-
-    df_editato = st.data_editor(
-        df_vista, 
-        num_rows="dynamic", 
+    st.write("Modifica i dati qui sotto (Capitano e Portiere sono gestiti automaticamente):")
+    df_edit = st.data_editor(
+        df_db, 
+        column_order=col_visibili, 
+        hide_index=True, 
         use_container_width=True,
-        key="editor_v_ultimate",
-        column_config=config,
-        hide_index=True # Forza la rimozione della colonna 0, 1, 2...
+        key="editor_safe_v1"
     )
     
-    if st.button("💾 Salva modifiche", use_container_width=True):
-        if salva_db(df_editato, df_full):
-            st.success("Dati salvati e ordinati!")
+    if st.button("💾 Salva modifiche"):
+        if salva_db(df_edit):
+            st.success("Dati salvati!")
             st.rerun()
 
 with t1:
@@ -159,11 +132,11 @@ with t1:
         with col2:
             sel_s = st.multiselect("Seleziona Staff", staf['Nominativo'].tolist())
 
-        if st.button("🚀 Scarica Distinta Excel", use_container_width=True):
+        if st.button("🚀 Scarica Distinta Excel"):
             if sel_p:
                 xlsx = compila_template(
                     gioc[gioc['Nominativo'].isin(sel_p)], 
                     staf[staf['Nominativo'].isin(sel_s)], 
                     {"avversario": avv, "campo": cmp, "data": dat, "ora": ora}
                 )
-                st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx", use_container_width=True)
+                st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx")
