@@ -16,12 +16,16 @@ def carica_db():
         col_db = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere", "Titolare"]
         if df is None or df.empty:
             return pd.DataFrame(columns=col_db)
+        
         for col in col_db:
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere", "Titolare"] else ""
         
-        # Pulizia e ordinamento
+        # --- FORZATURA TESTO PER RUOLO E NOMINATIVO ---
+        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
         df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
+        
+        # Conversione sicura per i booleani
         for c in ["Capitano", "Portiere", "Titolare"]:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
         
@@ -94,8 +98,7 @@ with t2:
     st.header("Anagrafica Tesserati")
     df = carica_db()
     
-    # 1. GESTIONE RUOLI SPECIALI (Fuori dalla tabella)
-    st.subheader("🏆 Assegnazione Ruoli Speciali")
+    st.subheader("🏆 Ruoli Speciali")
     giocatori_nomi = df[df['Tipo'] == 'Giocatore']['Nominativo'].tolist()
     
     c1, c2, c3 = st.columns(3)
@@ -109,30 +112,40 @@ with t2:
         titolari_sel = st.multiselect("Seleziona gli 11 Titolari", giocatori_nomi,
                                     default=df[df['Titolare']]['Nominativo'].tolist())
 
-    # 2. TABELLA PULITA
     st.subheader("📝 Dati Anagrafici")
     col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
-    
-    # Rimuoviamo l'indice resettandolo prima della visualizzazione
     df_vista = df[col_visibili].reset_index(drop=True)
     
+    # --- CONFIGURAZIONE MANUALE PER EVITARE ERRORI DI TIPO ---
+    # Usiamo column_config solo per dire che Ruolo è testo, ma con protezione AttributeError
+    config_sicura = {}
+    if hasattr(st, "column_config"):
+        config_sicura = {
+            "Ruolo": st.column_config.TextColumn("Ruolo Staff (es. Allenatore)"),
+            "Nominativo": st.column_config.TextColumn("Nome e Cognome")
+        }
+
     df_edit = st.data_editor(
         df_vista, 
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="simple_editor_v1"
+        column_config=config_sicura, # Forza il formato testo
+        key="text_editor_v2"
     )
     
     if st.button("💾 Salva modifiche Database", use_container_width=True):
-        # Ricostruiamo il DF completo prima di salvare
-        df_edit['Capitano'] = df_edit['Nominativo'] == capitano
-        df_edit['Portiere'] = df_edit['Nominativo'] == portiere
-        df_edit['Titolare'] = df_edit['Nominativo'].isin(titolari_sel)
-        
-        if salva_db(df_edit):
-            st.success("Database aggiornato!")
-            st.rerun()
+        # Impediamo il salvataggio se ci sono troppi titolari
+        if len(titolari_sel) > 11:
+            st.error(f"Attenzione! Hai selezionato {len(titolari_sel)} titolari. Il massimo consentito è 11.")
+        else:
+            df_edit['Capitano'] = df_edit['Nominativo'] == capitano
+            df_edit['Portiere'] = df_edit['Nominativo'] == portiere
+            df_edit['Titolare'] = df_edit['Nominativo'].isin(titolari_sel)
+            
+            if salva_db(df_edit):
+                st.success("Database aggiornato con successo!")
+                st.rerun()
 
 with t1:
     st.header("📝 Dati della Gara")
