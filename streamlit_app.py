@@ -20,16 +20,19 @@ def carica_db():
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere", "Titolare"] else ""
         
-        # Ordinamento automatico: Ruolo e poi Nome
-        df = df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
-        return df
+        # Pulizia e ordinamento
+        df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
+        for c in ["Capitano", "Portiere", "Titolare"]:
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
+        
+        return df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
         return pd.DataFrame()
 
-def salva_db(df_nuovo):
+def salva_db(df):
     try:
-        conn.update(data=df_nuovo)
+        conn.update(data=df)
         st.cache_data.clear()
         return True
     except Exception as e:
@@ -54,7 +57,6 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Titolari (12-22) e Riserve (23-33)
     titolari = p_df[p_df['Titolare'] == True].head(11)
     riserve = p_df[p_df['Titolare'] == False].head(11)
 
@@ -90,34 +92,46 @@ t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
 with t2:
     st.header("Anagrafica Tesserati")
-    df_full = carica_db()
+    df = carica_db()
     
-    # --- COLONNE DA MOSTRARE ---
-    # Escludiamo Capitano, Portiere E Titolare dalla vista per massima pulizia
+    # 1. GESTIONE RUOLI SPECIALI (Fuori dalla tabella)
+    st.subheader("🏆 Assegnazione Ruoli Speciali")
+    giocatori_nomi = df[df['Tipo'] == 'Giocatore']['Nominativo'].tolist()
+    
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        capitano = st.selectbox("Seleziona Capitano", ["Nessuno"] + giocatori_nomi, 
+                               index=(giocatori_nomi.index(df[df['Capitano']]['Nominativo'].iloc[0]) + 1) if not df[df['Capitano']].empty else 0)
+    with c2:
+        portiere = st.selectbox("Seleziona Portiere", ["Nessuno"] + giocatori_nomi,
+                               index=(giocatori_nomi.index(df[df['Portiere']]['Nominativo'].iloc[0]) + 1) if not df[df['Portiere']].empty else 0)
+    with c3:
+        titolari_sel = st.multiselect("Seleziona gli 11 Titolari", giocatori_nomi,
+                                    default=df[df['Titolare']]['Nominativo'].tolist())
+
+    # 2. TABELLA PULITA
+    st.subheader("📝 Dati Anagrafici")
     col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
-    df_vista = df_full[col_visibili].copy()
     
-    # Configurazione minima (solo per i menu a tendina e numeri)
-    config_sicura = {
-        "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
-        "Maglia": st.column_config.NumberColumn("N°", format="%d")
-    }
-
-    st.info("Le colonne tecniche (Capitano, Portiere, Titolare) sono nascoste ma attive nel sistema.")
-
-    # Usiamo una nuova KEY per resettare la visualizzazione del browser
-    df_editato = st.data_editor(
+    # Rimuoviamo l'indice resettandolo prima della visualizzazione
+    df_vista = df[col_visibili].reset_index(drop=True)
+    
+    df_edit = st.data_editor(
         df_vista, 
-        num_rows="dynamic", 
+        num_rows="dynamic",
         use_container_width=True,
-        key="editor_clean_v99", 
-        column_config=config_sicura,
-        hide_index=True 
+        hide_index=True,
+        key="simple_editor_v1"
     )
     
-    if st.button("💾 Salva modifiche", use_container_width=True):
-        if salva_db(df_editato, df_full):
-            st.success("Dati salvati con successo!")
+    if st.button("💾 Salva modifiche Database", use_container_width=True):
+        # Ricostruiamo il DF completo prima di salvare
+        df_edit['Capitano'] = df_edit['Nominativo'] == capitano
+        df_edit['Portiere'] = df_edit['Nominativo'] == portiere
+        df_edit['Titolare'] = df_edit['Nominativo'].isin(titolari_sel)
+        
+        if salva_db(df_edit):
+            st.success("Database aggiornato!")
             st.rerun()
 
 with t1:
@@ -132,21 +146,21 @@ with t1:
 
     df_lavoro = carica_db()
     if not df_lavoro.empty:
-        gioc = df_lavoro[df_lavoro['Tipo'].str.lower() == 'giocatore']
-        staf = df_lavoro[df_lavoro['Tipo'].str.lower() == 'staff']
+        gioc = df_lavoro[df_lavoro['Tipo'] == 'Giocatore']
+        staf = df_lavoro[df_lavoro['Tipo'] == 'Staff']
         
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
-            sel_p = st.multiselect("Seleziona Giocatori", gioc['Nominativo'].tolist())
+            sel_p = st.multiselect("Seleziona Convocati (Titolari + Riserve)", gioc['Nominativo'].tolist())
         with col2:
-            sel_s = st.multiselect("Seleziona Staff", staf['Nominativo'].tolist())
+            sel_s = st.multiselect("Seleziona Staff presente", staf['Nominativo'].tolist())
 
-        if st.button("🚀 Scarica Distinta Excel"):
+        if st.button("🚀 Scarica Distinta Excel", use_container_width=True):
             if sel_p:
                 xlsx = compila_template(
                     gioc[gioc['Nominativo'].isin(sel_p)], 
                     staf[staf['Nominativo'].isin(sel_s)], 
                     {"avversario": avv, "campo": cmp, "data": dat, "ora": ora}
                 )
-                st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx")
+                st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx", use_container_width=True)
