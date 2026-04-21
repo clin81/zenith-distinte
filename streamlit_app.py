@@ -90,24 +90,34 @@ t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
 with t2:
     st.header("Anagrafica Tesserati")
-    df_db = carica_db()
+    df_full = carica_db()
     
-    # Vista semplificata per evitare crash su versioni vecchie
-    # Nascondiamo Capitano e Portiere dalla vista ma li teniamo nel DF
-    col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Titolare"]
+    # --- COLONNE DA MOSTRARE ---
+    # Escludiamo Capitano, Portiere E Titolare dalla vista per massima pulizia
+    col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
+    df_vista = df_full[col_visibili].copy()
     
-    st.write("Modifica i dati qui sotto (Capitano e Portiere sono gestiti automaticamente):")
-    df_edit = st.data_editor(
-        df_db, 
-        column_order=col_visibili, 
-        hide_index=True, 
+    # Configurazione minima (solo per i menu a tendina e numeri)
+    config_sicura = {
+        "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
+        "Maglia": st.column_config.NumberColumn("N°", format="%d")
+    }
+
+    st.info("Le colonne tecniche (Capitano, Portiere, Titolare) sono nascoste ma attive nel sistema.")
+
+    # Usiamo una nuova KEY per resettare la visualizzazione del browser
+    df_editato = st.data_editor(
+        df_vista, 
+        num_rows="dynamic", 
         use_container_width=True,
-        key="editor_safe_v1"
+        key="editor_clean_v99", 
+        column_config=config_sicura,
+        hide_index=True 
     )
     
-    if st.button("💾 Salva modifiche"):
-        if salva_db(df_edit):
-            st.success("Dati salvati!")
+    if st.button("💾 Salva modifiche", use_container_width=True):
+        if salva_db(df_editato, df_full):
+            st.success("Dati salvati con successo!")
             st.rerun()
 
 with t1:
