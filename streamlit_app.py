@@ -14,7 +14,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        # Aggiunte colonne Capitano e Portiere
         colonne_necessarie = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"]
         
         if df is None or df.empty:
@@ -24,17 +23,15 @@ def carica_db():
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere"] else ""
         
-        # Pulizia tipi dati
         df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
-        # Assicuriamoci che Capitano e Portiere siano booleani (per le checkbox)
-        df['Capitano'] = df['Capitano'].fillna(False).astype(bool)
-        df['Portiere'] = df['Portiere'].fillna(False).astype(bool)
+        df['Capitano'] = pd.to_numeric(df['Capitano'], errors='coerce').fillna(0).astype(bool)
+        df['Portiere'] = pd.to_numeric(df['Portiere'], errors='coerce').fillna(0).astype(bool)
         
         return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"])
+        return pd.DataFrame(columns=colonne_necessarie)
 
 def salva_db(df):
     try:
@@ -57,63 +54,63 @@ def safe_write(ws, cell_coord, value):
     else:
         cell.value = value
 
-def compila_template(players_df, staff_df, info):
+def compila_template(p_df, s_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
-    
     safe_write(ws, 'G7', f"Zenith Prato Vs {info['avversario']}")
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Scrittura Giocatori
-    r_idx = 12 
-    for _, row in players_df.iterrows():
-        nome_completo = str(row.get('Nominativo', ''))
-        # Aggiunta sigle C e P
-        if row.get('Capitano'): nome_completo += " (C)"
-        if row.get('Portiere'): nome_completo += " (P)"
+    # Giocatori (Riga 12)
+    for i, (_, row) in enumerate(p_df.iterrows()):
+        r = 12 + i
+        nome = str(row.get('Nominativo', ''))
+        if row.get('Capitano'): nome += " (C)"
+        if row.get('Portiere'): nome += " (P)"
         
-        safe_write(ws, f'C{r_idx}', row.get('Maglia', ''))
-        safe_write(ws, f'D{r_idx}', row.get('GG', ''))
-        safe_write(ws, f'E{r_idx}', row.get('MM', ''))
-        safe_write(ws, f'F{r_idx}', row.get('AA', ''))
-        safe_write(ws, f'G{r_idx}', nome_completo)
-        safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
-        r_idx += 1
+        safe_write(ws, f'C{r}', row.get('Maglia', ''))
+        safe_write(ws, f'D{r}', row.get('GG', ''))
+        safe_write(ws, f'E{r}', row.get('MM', ''))
+        safe_write(ws, f'F{r}', row.get('AA', ''))
+        safe_write(ws, f'G{r}', nome)
+        safe_write(ws, f'I{r}', row.get('FIGC', ''))
 
-    # Scrittura Staff
-    s_idx = 39
-    for _, row in staff_df.iterrows():
-        safe_write(ws, f'C{s_idx}', row.get('Ruolo', ''))
-        safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
-        safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
-        s_idx += 1
+    # Staff (Riga 39)
+    for i, (_, row) in enumerate(s_df.iterrows()):
+        r = 39 + i
+        safe_write(ws, f'C{r}', row.get('Ruolo', ''))
+        safe_write(ws, f'G{r}', row.get('Nominativo', ''))
+        safe_write(ws, f'I{r}', row.get('FIGC', ''))
 
-    output = BytesIO()
-    wb.save(output)
-    return output.getvalue()
+    out = BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 # --- UI ---
 st.title("⚽ Zenith Prato - Sistema Distinte")
-tab1, tab2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
+t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
-with tab2:
+with t2:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    config_editor = {
-        "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True),
-        "Maglia": st.column_config.NumberColumn("N°", format="%d"),
-        "Capitano": st.column_config.CheckboxColumn("Capitano"),
-        "Portiere": st.column_config.CheckboxColumn("Portiere"),
-        "Nominativo": st.column_config.TextColumn("Nome e Cognome", width="large")
-    }
+    # PROTEZIONE ANTI-CRASH: carichiamo i config solo se disponibili
+    config_editor = {}
+    if hasattr(st, "column_config"):
+        try:
+            config_editor = {
+                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
+                "Maglia": st.column_config.NumberColumn("N°", format="%d"),
+                "Capitano": st.column_config.CheckboxColumn("Capitano"),
+                "Portiere": st.column_config.CheckboxColumn("Portiere")
+            }
+        except: config_editor = {}
 
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="db_editor_v11", # Nuova chiave per forzare hide_index
+        key="editor_v_final_secure",
         column_config=config_editor,
         hide_index=True 
     )
@@ -123,7 +120,7 @@ with tab2:
             st.success("Dati sincronizzati!")
             st.rerun()
 
-with tab1:
+with t1:
     st.header("📝 Dati della Gara")
     c1, c2 = st.columns(2)
     with c1:
@@ -135,21 +132,21 @@ with tab1:
 
     df_lavoro = carica_db()
     if not df_lavoro.empty:
-        giocatori = df_lavoro[df_lavoro['Tipo'].str.lower() == 'giocatore']
-        staff = df_lavoro[df_lavoro['Tipo'].str.lower() == 'staff']
+        gioc = df_lavoro[df_lavoro['Tipo'].str.lower() == 'giocatore']
+        staf = df_lavoro[df_lavoro['Tipo'].str.lower() == 'staff']
         
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
-            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
+            sel_p = st.multiselect("Seleziona Giocatori", gioc['Nominativo'].tolist())
         with col2:
-            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
+            sel_s = st.multiselect("Seleziona Staff", staf['Nominativo'].tolist())
 
         if st.button("🚀 Scarica Distinta Excel", use_container_width=True):
-            if scelti_p:
-                file = compila_template(
-                    giocatori[giocatori['Nominativo'].isin(scelti_p)], 
-                    staff[staff['Nominativo'].isin(scelti_s)], 
+            if sel_p:
+                xlsx = compila_template(
+                    gioc[gioc['Nominativo'].isin(sel_p)], 
+                    staf[staf['Nominativo'].isin(sel_s)], 
                     {"avversario": avv, "campo": cmp, "data": dat, "ora": ora}
                 )
-                st.download_button("📥 Clicca per il Download", file, f"Distinta_{avv}.xlsx", use_container_width=True)
+                st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx", use_container_width=True)
