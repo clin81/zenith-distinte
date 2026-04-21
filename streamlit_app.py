@@ -23,15 +23,21 @@ def carica_db():
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere"] else ""
         
+        # Pulizia e conversione tipi
         df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
+        df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         df['Capitano'] = pd.to_numeric(df['Capitano'], errors='coerce').fillna(0).astype(bool)
         df['Portiere'] = pd.to_numeric(df['Portiere'], errors='coerce').fillna(0).astype(bool)
         
+        # --- ORDINAMENTO RICHIESTO ---
+        # Ordina prima per Ruolo (A-Z) e poi per Nominativo (A-Z)
+        df = df.sort_values(by=['Ruolo', 'Nominativo'], ascending=[True, True])
+        
         return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame(columns=colonne_necessarie)
+        return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"])
 
 def salva_db(df):
     try:
@@ -61,7 +67,7 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Giocatori (Riga 12)
+    # Giocatori (Dalla riga 12)
     for i, (_, row) in enumerate(p_df.iterrows()):
         r = 12 + i
         nome = str(row.get('Nominativo', ''))
@@ -75,7 +81,7 @@ def compila_template(p_df, s_df, info):
         safe_write(ws, f'G{r}', nome)
         safe_write(ws, f'I{r}', row.get('FIGC', ''))
 
-    # Staff (Riga 39)
+    # Staff (Dalla riga 39)
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
         safe_write(ws, f'C{r}', row.get('Ruolo', ''))
@@ -94,30 +100,33 @@ with t2:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    # PROTEZIONE ANTI-CRASH: carichiamo i config solo se disponibili
+    # --- CONFIGURAZIONE COLONNE (Nascoste di default) ---
     config_editor = {}
     if hasattr(st, "column_config"):
         try:
             config_editor = {
                 "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
                 "Maglia": st.column_config.NumberColumn("N°", format="%d"),
-                "Capitano": st.column_config.CheckboxColumn("Capitano"),
-                "Portiere": st.column_config.CheckboxColumn("Portiere")
+                # Impostiamo None per nascondere le colonne dalla vista iniziale dell'editor
+                "Capitano": None, 
+                "Portiere": None
             }
         except: config_editor = {}
+
+    st.caption("Nota: Le colonne 'Capitano' e 'Portiere' sono attive nel database ma nascoste in questa vista per pulizia.")
 
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="editor_v_final_secure",
+        key="editor_v_final_hidden",
         column_config=config_editor,
         hide_index=True 
     )
     
     if st.button("💾 Salva modifiche", use_container_width=True):
         if salva_db(df_editato):
-            st.success("Dati sincronizzati!")
+            st.success("Dati sincronizzati e ordinati!")
             st.rerun()
 
 with t1:
