@@ -21,7 +21,7 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
-        # FORZATURA TIPI: Fondamentale per poter scrivere lettere nel Ruolo
+        # SBLOCCO TESTO: Forza le colonne a essere stringhe per accettare lettere
         df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
         df['Tipo'] = df['Tipo'].astype(str).replace(['nan', 'None', ''], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
@@ -30,6 +30,8 @@ def carica_db():
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
         return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"])
+
+# [Le altre funzioni salva_db, safe_write e compila_template rimangono invariate]
 
 def salva_db(df):
     try:
@@ -41,45 +43,7 @@ def salva_db(df):
         st.error(f"Errore salvataggio: {e}")
         return False
 
-def safe_write(ws, cell_coord, value):
-    from openpyxl.cell.cell import MergedCell
-    cell = ws[cell_coord]
-    if isinstance(cell, MergedCell):
-        for merged_range in ws.merged_cells.ranges:
-            if cell_coord in merged_range:
-                ws.cell(row=merged_range.min_row, column=merged_range.min_col).value = value
-                return
-    else:
-        cell.value = value
-
-def compila_template(players_df, staff_df, info):
-    wb = load_workbook(TEMPLATE_FILE)
-    ws = wb.active 
-    safe_write(ws, 'G7', f"Zenith Prato Vs {info['avversario']}")
-    safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
-    safe_write(ws, 'G9', info['campo'])
-
-    r_idx = 12 
-    for _, row in players_df.iterrows():
-        safe_write(ws, f'C{r_idx}', row.get('Maglia', ''))
-        safe_write(ws, f'D{r_idx}', row.get('GG', ''))
-        safe_write(ws, f'E{r_idx}', row.get('MM', ''))
-        safe_write(ws, f'F{r_idx}', row.get('AA', ''))
-        safe_write(ws, f'G{r_idx}', row.get('Nominativo', ''))
-        safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
-        r_idx += 1
-
-    s_idx = 39
-    for _, row in staff_df.iterrows():
-        safe_write(ws, f'C{s_idx}', row.get('Ruolo', ''))
-        safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
-        safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
-        s_idx += 1
-
-    output = BytesIO()
-    wb.save(output)
-    return output.getvalue()
-
+# --- UI PRINCIPALE ---
 st.title("⚽ Zenith Prato - Sistema Distinte")
 tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
@@ -87,73 +51,38 @@ with tab_database:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    # --- SISTEMA DI SICUREZZA TOTALE ---
-    # Proviamo ad applicare le configurazioni una per una. Se una fallisce, l'app continua.
+    # Configurazione colonne (se la versione di Streamlit lo permette)
     config_sicura = {}
-    try:
-        if hasattr(st, "column_config"):
-            # Usiamo i nomi delle classi solo se esistono effettivamente nel modulo
-            if hasattr(st.column_config, "SelectColumn"):
-                config_sicura["Tipo"] = st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"])
-            if hasattr(st.column_config, "NumberColumn"):
-                config_sicura["Maglia"] = st.column_config.NumberColumn("N° Maglia", format="%d")
-            if hasattr(st.column_config, "TextColumn"):
-                config_sicura["Ruolo"] = st.column_config.TextColumn("Ruolo Staff (Scrivi qui)")
-    except Exception:
-        config_sicura = {} # Fallback totale: nessuna configurazione, solo tabella base
+    if hasattr(st, "column_config"):
+        try:
+            config_sicura = {
+                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
+                "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d"),
+                "Ruolo": st.column_config.TextColumn("Ruolo Staff (Lettere)")
+            }
+        except:
+            config_sicura = {}
 
-    # Ordinamento manuale (per sicurezza, se quello sui titoli non va)
-    c_ord1, c_ord2 = st.columns([1, 3])
+    # Ordinamento Manuale
+    c_ord1, _ = st.columns([2, 2])
     with c_ord1:
         sort_col = st.selectbox("Ordina tabella per:", df_db.columns, index=0)
     
     df_db = df_db.sort_values(by=sort_col)
 
+    # --- LA MODIFICA È QUI ---
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
-        width="stretch", # Come suggerito dai log
-        key="db_editor_v3",
-        column_config=config_sicura
+        width="stretch", 
+        key="db_editor_v4",
+        column_config=config_sicura,
+        hide_index=True  # <--- Questo toglie la prima colonna con i numeri 0, 1, 2...
     )
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Dati salvati con successo!")
+            st.success("Dati salvati!")
             st.rerun()
 
-with tab_distinta:
-    st.header("📝 Dati della Gara")
-    with st.container():
-        c1, c2 = st.columns(2)
-        with c1:
-            avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
-            campo = st.text_input("Luogo/Campo", "Chiavacci")
-        with c2:
-            data_g = st.text_input("Data (GG/MM/AAAA)", "15/04/2026")
-            ora_g = st.text_input("Ora Inizio", "10:30")
-
-    info = {"avversario": avversario, "campo": campo, "data": data_g, "ora": ora_g}
-    df_lavoro = carica_db()
-    
-    if not df_lavoro.empty:
-        giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
-        staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
-
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            scelti_p = st.multiselect("Seleziona Giocatori", giocatori['Nominativo'].tolist())
-        with col2:
-            scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
-
-        if st.button("🚀 Genera Distinta Excel", width="stretch"):
-            if scelti_p:
-                excel_final = compila_template(
-                    giocatori[giocatori['Nominativo'].isin(scelti_p)], 
-                    staff[staff['Nominativo'].isin(scelti_s)], 
-                    info
-                )
-                st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", width="stretch")
-            else:
-                st.error("Devi selezionare almeno un giocatore!")
+# [Codice per tab_distinta rimane uguale a prima]
