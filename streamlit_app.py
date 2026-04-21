@@ -12,48 +12,45 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carica_db():
     try:
-        # Leggiamo i dati dal foglio Google
+        # Lettura diretta senza cache (ttl=0)
         df = conn.read(ttl="0")
         
         if df is None or df.empty:
-            # Ritorna un dataframe vuoto con le colonne necessarie se il foglio non risponde
             return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"])
 
-        # --- SOLUZIONE AL KEYERROR ---
-        # Pulizia radicale dei nomi delle colonne: rimuove spazi, tabulazioni e va a capo
-        df.columns = [str(c).strip().replace('\n', '').replace('\r', '') for c in df.columns]
+        # Pulizia nomi colonne per risolvere KeyError
+        df.columns = [str(c).strip() for c in df.columns]
         
-        # Lista delle colonne che l'app si aspetta di trovare
-        colonne_richieste = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"]
+        # Colonne necessarie
+        col_db = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"]
         
-        # Se una colonna fondamentale manca, la aggiungiamo noi vuota
-        for col in colonne_richieste:
+        # Creazione colonne mancanti
+        for col in col_db:
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere"] else ""
         
-        # Pulizia dei dati nelle celle
+        # Pulizia contenuti celle
         df['Tipo'] = df['Tipo'].astype(str).str.strip().fillna("Giocatore")
         df['Nominativo'] = df['Nominativo'].astype(str).str.strip().replace(['nan', 'None', ''], '')
-        df['Ruolo'] = df['Ruolo'].astype(str).str.strip().replace(['nan', 'None', ''], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         
-        # Conversione sicura per i Booleani (Capitano/Portiere)
         for c in ["Capitano", "Portiere"]:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
         
-        # Ordina per Tipo (Staff prima, Giocatori dopo) e poi per Nome
         return df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
     except Exception as e:
-        st.error(f"Errore critico durante il caricamento dati: {e}")
+        if "429" in str(e):
+            st.error("🚫 Limite di richieste Google superato. Attendi 60 secondi prima di ricaricare.")
+        else:
+            st.error(f"Errore caricamento: {e}")
         return pd.DataFrame()
 
 def salva_db(df):
     try:
         conn.update(data=df)
-        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Errore durante il salvataggio su Google Sheets: {e}")
+        st.error(f"Errore salvataggio: {e}")
         return False
 
 def safe_write(ws, cell_coord, value):
@@ -76,13 +73,13 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Ordinamento Giocatori per Numero di Maglia (Lista Piatta)
+    # Ordinamento Giocatori per Maglia
     p_df = p_df.sort_values(by='Maglia', ascending=True)
 
-    # Scrittura Giocatori (Inizio riga 12)
+    # Scrittura Giocatori (Riga 12)
     for i, (_, row) in enumerate(p_df.iterrows()):
         r = 12 + i
-        if r > 38: break # Limite massimo prima dello staff
+        if r > 38: break 
         
         nome = f"{row.get('Nominativo', '')}"
         if row.get('Capitano'): nome += " (C)"
@@ -95,7 +92,7 @@ def compila_template(p_df, s_df, info):
         safe_write(ws, f'G{r}', nome)
         safe_write(ws, f'I{r}', row.get('FIGC', ''))
 
-    # Scrittura Staff (Inizio riga 39)
+    # Scrittura Staff (Riga 39)
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
         # Ruolo in C, Nominativo in D, FIGC in I
@@ -107,7 +104,7 @@ def compila_template(p_df, s_df, info):
     wb.save(out)
     return out.getvalue()
 
-# --- INTERFACCIA ---
+# --- UI STREAMLIT ---
 st.title("⚽ Zenith Prato - Sistema Distinte")
 t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
@@ -116,30 +113,29 @@ with t2:
     df = carica_db()
     
     if not df.empty:
-        # Filtro Giocatori sicuro (ignora maiuscole/minuscole)
         giocatori_df = df[df['Tipo'].str.contains('giocatore', case=False, na=False)]
         giocatori_nomi = giocatori_df['Nominativo'].tolist()
         
         st.subheader("🏆 Ruoli Speciali")
         c1, c2 = st.columns(2)
         with c1:
-            cap_sel = df[df['Capitano'] == True]['Nominativo'].iloc[0] if not df[df['Capitano'] == True].empty else "Nessuno"
-            idx_cap = (giocatori_nomi.index(cap_sel) + 1) if cap_sel in giocatori_nomi else 0
+            cap_corrente = df[df['Capitano'] == True]['Nominativo'].tolist()
+            idx_cap = (giocatori_nomi.index(cap_corrente[0]) + 1) if cap_corrente and cap_corrente[0] in giocatori_nomi else 0
             capitano = st.selectbox("Seleziona Capitano", ["Nessuno"] + giocatori_nomi, index=idx_cap)
         with c2:
-            por_sel = df[df['Portiere'] == True]['Nominativo'].iloc[0] if not df[df['Portiere'] == True].empty else "Nessuno"
-            idx_por = (giocatori_nomi.index(por_sel) + 1) if por_sel in giocatori_nomi else 0
+            por_corrente = df[df['Portiere'] == True]['Nominativo'].tolist()
+            idx_por = (giocatori_nomi.index(por_corrente[0]) + 1) if por_corrente and por_corrente[0] in giocatori_nomi else 0
             portiere = st.selectbox("Seleziona Portiere", ["Nessuno"] + giocatori_nomi, index=idx_por)
 
         st.subheader("📝 Dati Anagrafici")
         col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
-        df_edit = st.data_editor(df[col_visibili], num_rows="dynamic", use_container_width=True, hide_index=True, key="editor_v6")
+        df_edit = st.data_editor(df[col_visibili], num_rows="dynamic", use_container_width=True, hide_index=True, key="editor_no_cache")
         
         if st.button("💾 Salva modifiche Database", use_container_width=True):
             df_edit['Capitano'] = df_edit['Nominativo'] == capitano
             df_edit['Portiere'] = df_edit['Nominativo'] == portiere
             if salva_db(df_edit):
-                st.success("Database aggiornato con successo!")
+                st.success("Dati aggiornati!")
                 st.rerun()
 
 with t1:
@@ -172,5 +168,3 @@ with t1:
                     {"avversario": avv, "campo": cmp, "data": dat, "ora": ora}
                 )
                 st.download_button("📥 Scarica Ora", xlsx, f"Distinta_{avv}.xlsx", use_container_width=True)
-            else:
-                st.warning("Seleziona almeno un giocatore per generare il file.")
