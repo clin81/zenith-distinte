@@ -10,39 +10,44 @@ TEMPLATE_FILE = "distinta_vuota.xlsx"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- FUNZIONI DI SERVIZIO ---
 def carica_db():
     try:
         df = conn.read(ttl="0")
-        colonne_necessarie = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"]
+        # Tutte le colonne presenti nel database fisico
+        col_db = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere", "Titolare"]
         
         if df is None or df.empty:
-            return pd.DataFrame(columns=colonne_necessarie)
+            return pd.DataFrame(columns=col_db)
         
-        for col in colonne_necessarie:
+        for col in col_db:
             if col not in df.columns:
-                df[col] = False if col in ["Capitano", "Portiere"] else ""
+                df[col] = False if col in ["Capitano", "Portiere", "Titolare"] else ""
         
-        # Pulizia e conversione tipi
+        # Pulizia dati
         df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
         df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
-        df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
-        df['Capitano'] = pd.to_numeric(df['Capitano'], errors='coerce').fillna(0).astype(bool)
-        df['Portiere'] = pd.to_numeric(df['Portiere'], errors='coerce').fillna(0).astype(bool)
-        
-        # --- ORDINAMENTO RICHIESTO ---
-        # Ordina prima per Ruolo (A-Z) e poi per Nominativo (A-Z)
+        for c in ["Capitano", "Portiere", "Titolare"]:
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
+            
+        # ORDINAMENTO: Prima Ruolo, poi Nominativo
         df = df.sort_values(by=['Ruolo', 'Nominativo'], ascending=[True, True])
-        
-        return df[colonne_necessarie]
+        return df
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere"])
+        return pd.DataFrame()
 
-def salva_db(df):
+def salva_db(df_editato, df_originale):
     try:
-        df = df.fillna("")
-        conn.update(data=df)
+        # Uniamo le modifiche fatte nella tabella visibile con i dati nascosti (Capitano/Portiere)
+        # Usiamo il Nominativo come chiave per non perdere i dati
+        df_originale.set_index('Nominativo', inplace=True)
+        df_editato.set_index('Nominativo', inplace=True)
+        
+        # Aggiorniamo solo le colonne visibili nell'editor
+        df_originale.update(df_editato)
+        df_final = df_originale.reset_index()
+        
+        conn.update(data=df_final)
         st.cache_data.clear()
         return True
     except Exception as e:
@@ -67,21 +72,27 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Giocatori (Dalla riga 12)
-    for i, (_, row) in enumerate(p_df.iterrows()):
-        r = 12 + i
-        nome = str(row.get('Nominativo', ''))
-        if row.get('Capitano'): nome += " (C)"
-        if row.get('Portiere'): nome += " (P)"
-        
-        safe_write(ws, f'C{r}', row.get('Maglia', ''))
-        safe_write(ws, f'D{r}', row.get('GG', ''))
-        safe_write(ws, f'E{r}', row.get('MM', ''))
-        safe_write(ws, f'F{r}', row.get('AA', ''))
-        safe_write(ws, f'G{r}', nome)
-        safe_write(ws, f'I{r}', row.get('FIGC', ''))
+    # Logica Titolari (Righe 12-22) e Riserve (Righe 23-33)
+    titolari = p_df[p_df['Titolare'] == True].head(11)
+    riserve = p_df[p_df['Titolare'] == False].head(11)
 
-    # Staff (Dalla riga 39)
+    def scrivi_blocco(lista, start_row):
+        for i, (_, row) in enumerate(lista.iterrows()):
+            r = start_row + i
+            nome = str(row.get('Nominativo', ''))
+            if row.get('Capitano'): nome += " (C)"
+            if row.get('Portiere'): nome += " (P)"
+            safe_write(ws, f'C{r}', row.get('Maglia', ''))
+            safe_write(ws, f'D{r}', row.get('GG', ''))
+            safe_write(ws, f'E{r}', row.get('MM', ''))
+            safe_write(ws, f'F{r}', row.get('AA', ''))
+            safe_write(ws, f'G{r}', nome)
+            safe_write(ws, f'I{r}', row.get('FIGC', ''))
+
+    scrivi_blocco(titolari, 12)
+    scrivi_blocco(riserve, 23)
+
+    # Staff (Riga 39)
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
         safe_write(ws, f'C{r}', row.get('Ruolo', ''))
@@ -98,35 +109,32 @@ t1, t2 = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
 with t2:
     st.header("Anagrafica Tesserati")
-    df_db = carica_db()
+    df_full = carica_db()
     
-    # --- CONFIGURAZIONE COLONNE (Nascoste di default) ---
-    config_editor = {}
-    if hasattr(st, "column_config"):
-        try:
-            config_editor = {
-                "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
-                "Maglia": st.column_config.NumberColumn("N°", format="%d"),
-                # Impostiamo None per nascondere le colonne dalla vista iniziale dell'editor
-                "Capitano": None, 
-                "Portiere": None
-            }
-        except: config_editor = {}
+    # MOSTRA SOLO QUESTE COLONNE (Nasconde Capitano e Portiere)
+    colonne_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Titolare"]
+    df_vista = df_full[colonne_visibili].copy()
+    
+    config = {
+        "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
+        "Titolare": st.column_config.CheckboxColumn("Titolare?"),
+        "Maglia": st.column_config.NumberColumn("N°", format="%d")
+    }
 
-    st.caption("Nota: Le colonne 'Capitano' e 'Portiere' sono attive nel database ma nascoste in questa vista per pulizia.")
+    st.info("L'indice numerico a sinistra è nascosto. Capitano e Portiere rimangono salvati ma non visualizzati qui.")
 
     df_editato = st.data_editor(
-        df_db, 
+        df_vista, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="editor_v_final_hidden",
-        column_config=config_editor,
-        hide_index=True 
+        key="editor_v_ultimate",
+        column_config=config,
+        hide_index=True # Forza la rimozione della colonna 0, 1, 2...
     )
     
     if st.button("💾 Salva modifiche", use_container_width=True):
-        if salva_db(df_editato):
-            st.success("Dati sincronizzati e ordinati!")
+        if salva_db(df_editato, df_full):
+            st.success("Dati salvati e ordinati!")
             st.rerun()
 
 with t1:
