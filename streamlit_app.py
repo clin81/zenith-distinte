@@ -8,7 +8,6 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="Zenith Prato - Gestione Distinte", layout="wide")
 TEMPLATE_FILE = "distinta_vuota.xlsx"
 
-# --- CONNESSIONE GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carica_db():
@@ -22,7 +21,7 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
-        # Pulizia dati per l'editor moderno
+        # Forza Ruolo come testo e Maglia come numero per evitare blocchi
         df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None'], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
         return df[colonne_necessarie]
@@ -54,13 +53,11 @@ def safe_write(ws, cell_coord, value):
 def compila_template(players_df, staff_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
-    
-    # Intestazione
     safe_write(ws, 'G7', f"Zenith Prato Vs {info['avversario']}")
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Giocatori (Riga 12)
+    # Giocatori
     r_idx = 12 
     for _, row in players_df.iterrows():
         safe_write(ws, f'C{r_idx}', row.get('Maglia', ''))
@@ -71,10 +68,9 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
         r_idx += 1
 
-    # Staff (Riga 39)
+    # Staff (Scrive Ruolo invece di Maglia)
     s_idx = 39
     for _, row in staff_df.iterrows():
-        # Scrive il RUOLO (Allenatore/Dirigente) nella colonna della maglia per lo staff
         safe_write(ws, f'C{s_idx}', row.get('Ruolo', ''))
         safe_write(ws, f'G{s_idx}', row.get('Nominativo', ''))
         safe_write(ws, f'I{s_idx}', row.get('FIGC', ''))
@@ -87,41 +83,41 @@ def compila_template(players_df, staff_df, info):
 st.title("⚽ Zenith Prato - Sistema Distinte")
 tab_distinta, tab_database = st.tabs(["📋 Genera Distinta", "⚙️ Gestione Anagrafica"])
 
-# --- TABELLA 2: GESTIONE DATABASE ---
 with tab_database:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    # Configurazione PROFESSIONALE delle colonne
+    # --- SISTEMA DI SICUREZZA ANTI-CRASH ---
+    config = {}
+    if hasattr(st, "column_config"):
+        config = {
+            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
+            "Maglia": st.column_config.NumberColumn("Maglia", format="%d"),
+            "Ruolo": st.column_config.TextColumn("Ruolo Staff (Testo)")
+        }
+
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
         width="stretch", 
         key="db_editor",
-        column_config={
-            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"], required=True),
-            "Ruolo": st.column_config.TextColumn("Ruolo Staff", placeholder="Es. Allenatore, Dirigente"),
-            "Maglia": st.column_config.NumberColumn("N° Maglia", format="%d", min_value=1),
-            "Nominativo": st.column_config.TextColumn("Nome e Cognome", width="large")
-        }
+        column_config=config # Se config è vuoto, usa la tabella standard
     )
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Database aggiornato!")
+            st.success("Dati sincronizzati!")
             st.rerun()
 
-# --- TABELLA 1: GENERAZIONE DISTINTA ---
 with tab_distinta:
     st.header("📝 Dati della Gara")
-    with st.container(border=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
-            campo = st.text_input("Luogo/Campo", "Chiavacci")
-        with c2:
-            data_g = st.text_input("Data (GG/MM/AAAA)", "15/04/2026")
-            ora_g = st.text_input("Ora Inizio", "10:30")
+    c1, c2 = st.columns(2)
+    with c1:
+        avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
+        campo = st.text_input("Campo", "Chiavacci")
+    with c2:
+        data_g = st.text_input("Data", "15/04/2026")
+        ora_g = st.text_input("Ora", "10:30")
 
     info = {"avversario": avversario, "campo": campo, "data": data_g, "ora": ora_g}
     df_lavoro = carica_db()
@@ -129,7 +125,7 @@ with tab_distinta:
     if not df_lavoro.empty:
         giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
         staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
-
+        
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
@@ -137,13 +133,11 @@ with tab_distinta:
         with col2:
             scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
 
-        if st.button("🚀 Genera Distinta Excel", width="stretch"):
+        if st.button("🚀 Genera Excel", width="stretch"):
             if scelti_p:
-                excel_final = compila_template(
+                excel = compila_template(
                     giocatori[giocatori['Nominativo'].isin(scelti_p)], 
                     staff[staff['Nominativo'].isin(scelti_s)], 
                     info
                 )
-                st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", width="stretch")
-            else:
-                st.error("Seleziona i giocatori!")
+                st.download_button("📥 Scarica File", excel, f"Distinta_{avversario}.xlsx", width="stretch")
