@@ -13,26 +13,34 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def carica_db():
     try:
         df = conn.read(ttl="0")
+        
+        # --- PULIZIA COLONNE (Risolve il KeyError) ---
+        if df is not None and not df.empty:
+            # Rimuove spazi bianchi dai nomi delle colonne e li rende coerenti
+            df.columns = [str(c).strip() for c in df.columns]
+        
         col_db = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere", "Titolare"]
+        
         if df is None or df.empty:
             return pd.DataFrame(columns=col_db)
-        
+            
+        # Assicuriamoci che tutte le colonne esistano, altrimenti le creiamo vuote
         for col in col_db:
             if col not in df.columns:
                 df[col] = False if col in ["Capitano", "Portiere", "Titolare"] else ""
         
-        # --- FORZATURA TESTO PER RUOLO E NOMINATIVO ---
-        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
+        # Forziamo i tipi di dati per evitare errori nei selettori
+        df['Tipo'] = df['Tipo'].astype(str).fillna("Giocatore")
         df['Nominativo'] = df['Nominativo'].astype(str).replace(['nan', 'None', ''], '')
+        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
         
-        # Conversione sicura per i booleani
         for c in ["Capitano", "Portiere", "Titolare"]:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(bool)
         
         return df.sort_values(by=['Tipo', 'Nominativo'], ascending=[False, True])
     except Exception as e:
-        st.error(f"Errore caricamento: {e}")
-        return pd.DataFrame()
+        st.error(f"Errore tecnico nel caricamento: {e}")
+        return pd.DataFrame(columns=["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC", "Capitano", "Portiere", "Titolare"])
 
 def salva_db(df):
     try:
@@ -40,8 +48,10 @@ def salva_db(df):
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Errore salvataggio: {e}")
+        st.error(f"Errore nel salvataggio: {e}")
         return False
+
+# ... (Le funzioni safe_write e compila_template rimangono identiche a prima)
 
 def safe_write(ws, cell_coord, value):
     from openpyxl.cell.cell import MergedCell
@@ -60,13 +70,12 @@ def compila_template(p_df, s_df, info):
     safe_write(ws, 'G7', f"Zenith Prato Vs {info['avversario']}")
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
-
     titolari = p_df[p_df['Titolare'] == True].head(11)
-    riserve = p_df[p_df['Titolare'] == False].head(11)
-
+    riserve = p_df[p_df['Titolare'] == False]
     def scrivi_blocco(lista, start_row):
         for i, (_, row) in enumerate(lista.iterrows()):
             r = start_row + i
+            if r > 38: break # Evita di sovrascrivere lo staff
             nome = f"{row.get('Nominativo', '')}"
             if row.get('Capitano'): nome += " (C)"
             if row.get('Portiere'): nome += " (P)"
@@ -76,16 +85,13 @@ def compila_template(p_df, s_df, info):
             safe_write(ws, f'F{r}', row.get('AA', ''))
             safe_write(ws, f'G{r}', nome)
             safe_write(ws, f'I{r}', row.get('FIGC', ''))
-
     scrivi_blocco(titolari, 12)
     scrivi_blocco(riserve, 23)
-
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
         safe_write(ws, f'C{r}', row.get('Ruolo', ''))
         safe_write(ws, f'G{r}', row.get('Nominativo', ''))
         safe_write(ws, f'I{r}', row.get('FIGC', ''))
-
     out = BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -98,8 +104,14 @@ with t2:
     st.header("Anagrafica Tesserati")
     df = carica_db()
     
+    # Protezione: se df è vuoto, mostriamo un messaggio
+    if df.empty:
+        st.warning("Il database è vuoto o non accessibile. Controlla il foglio Google.")
+    
     st.subheader("🏆 Ruoli Speciali")
-    giocatori_nomi = df[df['Tipo'] == 'Giocatore']['Nominativo'].tolist()
+    # Usiamo str.lower() per i confronti per essere sicuri
+    giocatori_df = df[df['Tipo'].str.contains('giocatore', case=False, na=False)]
+    giocatori_nomi = giocatori_df['Nominativo'].tolist()
     
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -116,38 +128,27 @@ with t2:
     col_visibili = ["Nominativo", "Tipo", "Ruolo", "Maglia", "GG", "MM", "AA", "FIGC"]
     df_vista = df[col_visibili].reset_index(drop=True)
     
-    # --- CONFIGURAZIONE MANUALE PER EVITARE ERRORI DI TIPO ---
-    # Usiamo column_config solo per dire che Ruolo è testo, ma con protezione AttributeError
-    config_sicura = {}
-    if hasattr(st, "column_config"):
-        config_sicura = {
-            "Ruolo": st.column_config.TextColumn("Ruolo Staff (es. Allenatore)"),
-            "Nominativo": st.column_config.TextColumn("Nome e Cognome")
-        }
-
     df_edit = st.data_editor(
         df_vista, 
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        column_config=config_sicura, # Forza il formato testo
-        key="text_editor_v2"
+        key="final_safe_editor"
     )
     
     if st.button("💾 Salva modifiche Database", use_container_width=True):
-        # Impediamo il salvataggio se ci sono troppi titolari
         if len(titolari_sel) > 11:
-            st.error(f"Attenzione! Hai selezionato {len(titolari_sel)} titolari. Il massimo consentito è 11.")
+            st.error(f"Errore: Hai selezionato {len(titolari_sel)} titolari. Massimo 11.")
         else:
             df_edit['Capitano'] = df_edit['Nominativo'] == capitano
             df_edit['Portiere'] = df_edit['Nominativo'] == portiere
             df_edit['Titolare'] = df_edit['Nominativo'].isin(titolari_sel)
-            
             if salva_db(df_edit):
-                st.success("Database aggiornato con successo!")
+                st.success("Database aggiornato!")
                 st.rerun()
 
 with t1:
+    # ... (La parte tab1 rimane uguale, carica_db si occuperà di tutto)
     st.header("📝 Dati della Gara")
     c1, c2 = st.columns(2)
     with c1:
@@ -159,8 +160,8 @@ with t1:
 
     df_lavoro = carica_db()
     if not df_lavoro.empty:
-        gioc = df_lavoro[df_lavoro['Tipo'] == 'Giocatore']
-        staf = df_lavoro[df_lavoro['Tipo'] == 'Staff']
+        gioc = df_lavoro[df_lavoro['Tipo'].str.contains('giocatore', case=False, na=False)]
+        staf = df_lavoro[df_lavoro['Tipo'].str.contains('staff', case=False, na=False)]
         
         st.divider()
         col1, col2 = st.columns(2)
