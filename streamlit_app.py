@@ -21,9 +21,11 @@ def carica_db():
             if col not in df.columns:
                 df[col] = ""
         
-        # Forza Ruolo come testo e Maglia come numero per evitare blocchi
-        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None'], '')
+        # FORZATURA TIPI: Fondamentale per poter scrivere lettere nel Ruolo
+        df['Ruolo'] = df['Ruolo'].astype(str).replace(['nan', 'None', ''], '')
+        df['Tipo'] = df['Tipo'].astype(str).replace(['nan', 'None', ''], '')
         df['Maglia'] = pd.to_numeric(df['Maglia'], errors='coerce')
+        
         return df[colonne_necessarie]
     except Exception as e:
         st.error(f"Errore caricamento: {e}")
@@ -57,7 +59,6 @@ def compila_template(players_df, staff_df, info):
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
 
-    # Giocatori
     r_idx = 12 
     for _, row in players_df.iterrows():
         safe_write(ws, f'C{r_idx}', row.get('Maglia', ''))
@@ -68,7 +69,6 @@ def compila_template(players_df, staff_df, info):
         safe_write(ws, f'I{r_idx}', row.get('FIGC', ''))
         r_idx += 1
 
-    # Staff (Scrive Ruolo invece di Maglia)
     s_idx = 39
     for _, row in staff_df.iterrows():
         safe_write(ws, f'C{s_idx}', row.get('Ruolo', ''))
@@ -87,37 +87,51 @@ with tab_database:
     st.header("Anagrafica Tesserati")
     df_db = carica_db()
     
-    # --- SISTEMA DI SICUREZZA ANTI-CRASH ---
-    config = {}
-    if hasattr(st, "column_config"):
-        config = {
-            "Tipo": st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"]),
-            "Maglia": st.column_config.NumberColumn("Maglia", format="%d"),
-            "Ruolo": st.column_config.TextColumn("Ruolo Staff (Testo)")
-        }
+    # --- SISTEMA DI SICUREZZA TOTALE ---
+    # Proviamo ad applicare le configurazioni una per una. Se una fallisce, l'app continua.
+    config_sicura = {}
+    try:
+        if hasattr(st, "column_config"):
+            # Usiamo i nomi delle classi solo se esistono effettivamente nel modulo
+            if hasattr(st.column_config, "SelectColumn"):
+                config_sicura["Tipo"] = st.column_config.SelectColumn("Tipo", options=["Giocatore", "Staff"])
+            if hasattr(st.column_config, "NumberColumn"):
+                config_sicura["Maglia"] = st.column_config.NumberColumn("N° Maglia", format="%d")
+            if hasattr(st.column_config, "TextColumn"):
+                config_sicura["Ruolo"] = st.column_config.TextColumn("Ruolo Staff (Scrivi qui)")
+    except Exception:
+        config_sicura = {} # Fallback totale: nessuna configurazione, solo tabella base
+
+    # Ordinamento manuale (per sicurezza, se quello sui titoli non va)
+    c_ord1, c_ord2 = st.columns([1, 3])
+    with c_ord1:
+        sort_col = st.selectbox("Ordina tabella per:", df_db.columns, index=0)
+    
+    df_db = df_db.sort_values(by=sort_col)
 
     df_editato = st.data_editor(
         df_db, 
         num_rows="dynamic", 
-        width="stretch", 
-        key="db_editor",
-        column_config=config # Se config è vuoto, usa la tabella standard
+        width="stretch", # Come suggerito dai log
+        key="db_editor_v3",
+        column_config=config_sicura
     )
     
     if st.button("💾 Salva modifiche"):
         if salva_db(df_editato):
-            st.success("Dati sincronizzati!")
+            st.success("Dati salvati con successo!")
             st.rerun()
 
 with tab_distinta:
     st.header("📝 Dati della Gara")
-    c1, c2 = st.columns(2)
-    with c1:
-        avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
-        campo = st.text_input("Campo", "Chiavacci")
-    with c2:
-        data_g = st.text_input("Data", "15/04/2026")
-        ora_g = st.text_input("Ora", "10:30")
+    with st.container():
+        c1, c2 = st.columns(2)
+        with c1:
+            avversario = st.text_input("Squadra Avversaria", "SQUADRA OSPITE")
+            campo = st.text_input("Luogo/Campo", "Chiavacci")
+        with c2:
+            data_g = st.text_input("Data (GG/MM/AAAA)", "15/04/2026")
+            ora_g = st.text_input("Ora Inizio", "10:30")
 
     info = {"avversario": avversario, "campo": campo, "data": data_g, "ora": ora_g}
     df_lavoro = carica_db()
@@ -125,7 +139,7 @@ with tab_distinta:
     if not df_lavoro.empty:
         giocatori = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'giocatore']
         staff = df_lavoro[df_lavoro['Tipo'].astype(str).str.lower() == 'staff']
-        
+
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
@@ -133,11 +147,13 @@ with tab_distinta:
         with col2:
             scelti_s = st.multiselect("Seleziona Staff", staff['Nominativo'].tolist())
 
-        if st.button("🚀 Genera Excel", width="stretch"):
+        if st.button("🚀 Genera Distinta Excel", width="stretch"):
             if scelti_p:
-                excel = compila_template(
+                excel_final = compila_template(
                     giocatori[giocatori['Nominativo'].isin(scelti_p)], 
                     staff[staff['Nominativo'].isin(scelti_s)], 
                     info
                 )
-                st.download_button("📥 Scarica File", excel, f"Distinta_{avversario}.xlsx", width="stretch")
+                st.download_button("📥 Scarica File", excel_final, f"Distinta_{avversario}.xlsx", width="stretch")
+            else:
+                st.error("Devi selezionare almeno un giocatore!")
