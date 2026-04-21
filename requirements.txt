@@ -1,4 +1,8 @@
-streamlit==1.56.0
-pandas
-openpyxl
-st-gsheets-connection
+streamlit>=1.35.0
+    pandas
+    st-gsheets-connection
+    openpyxl
+    ```
+  
+  
+    
