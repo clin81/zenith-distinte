@@ -67,31 +67,44 @@ def safe_write(ws, cell_coord, value):
 def compila_template(p_df, s_df, info):
     wb = load_workbook(TEMPLATE_FILE)
     ws = wb.active 
+    
+    # Intestazione Gara
     safe_write(ws, 'G7', f"Zenith Prato Vs {info['avversario']}")
     safe_write(ws, 'G8', f"Data: {info['data']} - Ora: {info['ora']}")
     safe_write(ws, 'G9', info['campo'])
+
+    # --- LOGICA GIOCATORI ---
+    # Titolari: Righe 12-22
     titolari = p_df[p_df['Titolare'] == True].head(11)
-    riserve = p_df[p_df['Titolare'] == False]
+    # Riserve: Righe 23-33
+    riserve = p_df[p_df['Titolare'] == False].head(11)
+
     def scrivi_blocco(lista, start_row):
         for i, (_, row) in enumerate(lista.iterrows()):
             r = start_row + i
-            if r > 38: break # Evita di sovrascrivere lo staff
             nome = f"{row.get('Nominativo', '')}"
             if row.get('Capitano'): nome += " (C)"
             if row.get('Portiere'): nome += " (P)"
-            safe_write(ws, f'C{r}', row.get('Maglia', ''))
-            safe_write(ws, f'D{r}', row.get('GG', ''))
-            safe_write(ws, f'E{r}', row.get('MM', ''))
-            safe_write(ws, f'F{r}', row.get('AA', ''))
-            safe_write(ws, f'G{r}', nome)
-            safe_write(ws, f'I{r}', row.get('FIGC', ''))
+            
+            safe_write(ws, f'C{r}', row.get('Maglia', ''))  # N° Maglia
+            safe_write(ws, f'D{r}', row.get('GG', ''))      # GG
+            safe_write(ws, f'E{r}', row.get('MM', ''))      # MM
+            safe_write(ws, f'F{r}', row.get('AA', ''))      # AA
+            safe_write(ws, f'G{r}', nome)                   # Nominativo
+            safe_write(ws, f'I{r}', row.get('FIGC', ''))    # Matricola
+
+    # Scrittura Atleti
     scrivi_blocco(titolari, 12)
     scrivi_blocco(riserve, 23)
+
+    # --- LOGICA STAFF (Dalla riga 39) ---
     for i, (_, row) in enumerate(s_df.iterrows()):
         r = 39 + i
-        safe_write(ws, f'C{r}', row.get('Ruolo', ''))
-        safe_write(ws, f'G{r}', row.get('Nominativo', ''))
-        safe_write(ws, f'I{r}', row.get('FIGC', ''))
+        # Spostati nelle colonne corrette per lo staff
+        safe_write(ws, f'C{r}', row.get('Ruolo', ''))       # Ruolo nella colonna C
+        safe_write(ws, f'D{r}', row.get('Nominativo', ''))  # Nominativo nella colonna D
+        safe_write(ws, f'I{r}', row.get('FIGC', ''))        # Matricola nella colonna I
+
     out = BytesIO()
     wb.save(out)
     return out.getvalue()
